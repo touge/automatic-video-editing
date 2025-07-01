@@ -1,0 +1,10 @@
+PyYAML
+requests
+ffmpeg-python
+ollama
+google-generativeai
+openai-whisper
+
+# API Server
+fastapi
+uvicorn[standard]

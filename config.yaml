@@ -1,0 +1,32 @@
+# 文件路径配置
+paths:
+  local_assets_dir: "assets/local"
+
+# 前往 https://www.pexels.com/api/ 获取你的免费API Key
+pexels:
+  api_key: "iNiHQpjN7TNllWGZxPztmUEx4StKko4CjJBq310RFPIlfiXPKZDxI6uk"
+
+# 前往 https://aistudio.google.com/app/apikey 获取你的免费API Key
+gemini:
+  api_key: "AIzaSyDsbWrQDdO6wqvUyGfEdJxKU6FXTs6aQNQ"
+
+# Ollama 本地大模型配置
+# 1. 安装 Ollama: https://ollama.com/
+# 2. 在终端运行: ollama pull llama3
+ollama:
+  model: "qwen3:14b-q8_0" # 或者 "qwen:7b", "gemma:7b" 等
+  host: "http://192.168.0.253:11434"
+
+# 场景检测配置
+scene_detection:
+  # 工具会尝试将字幕合并成大约这个时长的场景（单位：秒）
+  target_duration_seconds: 8.0
+
+  # 对长字幕进行分块处理的配置
+  splitter:
+    chunk_size: 50  # 每个区块包含的字幕片段数量
+    overlap: 10     # 区块之间的重叠片段数量
+
+api_server:
+  # 请修改为一个更长、更随机的安全密钥
+  secret_key: "YOUR_SUPER_SECRET_API_KEY"

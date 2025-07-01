@@ -1,0 +1,77 @@
+import sqlite3
+import os
+import random
+from typing import List, Set
+
+DB_PATH = os.path.join("storage", "asset_library.db")
+DB_DIR = os.path.dirname(DB_PATH)
+
+class DatabaseManager:
+    """
+    管理本地素材的SQLite数据库。
+    """
+    def __init__(self):
+        os.makedirs(DB_DIR, exist_ok=True)
+        self.conn = sqlite3.connect(DB_PATH)
+        self.setup_database()
+
+    def setup_database(self):
+        """创建数据库表结构（如果不存在）。"""
+        cursor = self.conn.cursor()
+        # 简单的schema：将关键词存储为用空格分隔的字符串，便于用LIKE搜索。
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS assets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                asset_source TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                keywords TEXT,
+                file_path TEXT NOT NULL UNIQUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        # 为source和source_id创建唯一索引，防止重复记录，并加速查找。
+        cursor.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_source ON assets (asset_source, source_id);
+        """)
+        self.conn.commit()
+
+    def add_asset(self, asset_source: str, source_id: str, keywords: List[str], file_path: str) -> bool:
+        """向数据库添加一条新的素材记录。"""
+        # 将关键词列表规范化为一个可搜索的字符串
+        keywords_str = " ".join(sorted(list(set(kw.lower() for kw in keywords))))
+        try:
+            with self.conn:
+                self.conn.execute(
+                    "INSERT INTO assets (asset_source, source_id, keywords, file_path) VALUES (?, ?, ? ,?)",
+                    (asset_source, source_id, keywords_str, file_path)
+                )
+            return True
+        except sqlite3.IntegrityError:
+            # 如果记录已存在（UNIQUE约束失败），则忽略。
+            return False
+
+    def find_asset_by_source_id(self, asset_source: str, source_id: str) -> str | None:
+        """通过来源和来源ID精确查找素材路径。"""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT file_path FROM assets WHERE asset_source = ? AND source_id = ?", (asset_source, source_id))
+        result = cursor.fetchone()
+        # 如果找到了记录，但文件在磁盘上已被删除，则返回None
+        if result and os.path.exists(result[0]):
+            return result[0]
+        return None
+
+    def find_assets_by_keywords(self, keywords: List[str], limit: int) -> List[str]:
+        """通过关键词在数据库中搜索素材。"""
+        found_paths: Set[str] = set()
+        for keyword in keywords:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT file_path FROM assets WHERE keywords LIKE ?", (f"%{keyword.lower()}%",))
+            for row in cursor.fetchall():
+                if os.path.exists(row[0]):
+                    found_paths.add(row[0])
+        
+        return random.sample(list(found_paths), min(limit, len(found_paths)))
+
+    def __del__(self):
+        if self.conn:
+            self.conn.close()
