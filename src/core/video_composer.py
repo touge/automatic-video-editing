@@ -65,7 +65,6 @@ class VideoComposer:
                     .filter('scale', width=width, height=height, force_original_aspect_ratio='decrease')
                     .filter('pad', width=width, height=height, x='(ow-iw)/2', y='(oh-ih)/2', color='black')
                     .filter('fps', fps=framerate, round='up')
-                    .filter('setsar', '1') # Set Sample Aspect Ratio to 1:1
                 )
                 video_parts.append(video_stream)
 
@@ -75,6 +74,7 @@ class VideoComposer:
 
         # 2. 拼接所有标准化的视频流
         concatenated_video = ffmpeg.concat(*video_parts, v=1, a=0)
+        concatenated_video = concatenated_video.filter('setsar', '1') # 在拼接后应用SAR
         
         # 3. 从提供的音频文件中提取音轨
         original_audio = ffmpeg.input(audio_path).audio

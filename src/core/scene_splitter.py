@@ -40,11 +40,46 @@ Line numbers of scene breaks:"""
                 options={'temperature': 0.0} # 使用低温以获得更确定的结果
             )
             content = response['message']['content']
-            split_points = [int(n.strip()) for n in content.split(',') if n.strip().isdigit()]
-            return sorted(split_points)
+            # 使用 set 来处理LLM可能返回的重复数字
+            raw_points = [int(n.strip()) for n in content.split(',') if n.strip().isdigit()]
+            split_points = sorted(list(set(raw_points))) # 去重并排序
+            return split_points
         except Exception as e:
             print(f"警告: 调用Ollama进行场景分割时出错: {e}. 该区块将不会被分割。")
             return []
+
+    def _construct_scenes_for_chunk(self, chunk_segments: list, split_points: list) -> list:
+        """
+        为单个区块构建场景字典列表，用于缓存。
+        这使得缓存文件具有可读性。
+        """
+        scenes_for_cache = []
+        last_split = -1
+        
+        # 确保区块的最后一个片段也被视为分割点，以便构建场景
+        all_points = sorted(list(set(split_points + [len(chunk_segments) - 1])))
+
+        for point in all_points:
+            start_index = last_split + 1
+            end_index = point
+            
+            if start_index > end_index:
+                continue
+
+            scene_segs = chunk_segments[start_index : end_index + 1]
+            if not scene_segs:
+                continue
+                
+            text = " ".join(s['text'] for s in scene_segs)
+            
+            scenes_for_cache.append({
+                "start_line_in_chunk": start_index,
+                "end_line_in_chunk": end_index,
+                "text": text
+            })
+            last_split = end_index
+            
+        return scenes_for_cache
 
     def split(self, segments: list) -> list:
         if not segments:
@@ -74,14 +109,27 @@ Line numbers of scene breaks:"""
             relative_split_points = []
             if os.path.exists(cache_file):
                 print(f"  -> 从缓存加载: {os.path.basename(cache_file)}")
-                with open(cache_file, 'r', encoding='utf-8') as f:
-                    relative_split_points = json.load(f)
-            else:
+                try:
+                    with open(cache_file, 'r', encoding='utf-8') as f:
+                        cached_scenes = json.load(f)
+                    # 从可读的缓存中提取出分割点
+                    relative_split_points = [scene['end_line_in_chunk'] for scene in cached_scenes]
+                except (json.JSONDecodeError, KeyError) as e:
+                    print(f"  -> 缓存文件 '{os.path.basename(cache_file)}' 格式错误或已损坏: {e}。将重新生成。")
+                    os.remove(cache_file) # 删除损坏的缓存
+                    # 让程序继续执行，以便重新生成
+            
+            # 如果缓存不存在或已损坏，则执行此块
+            if not relative_split_points and not os.path.exists(cache_file):
                 print("  -> 无缓存，正在调用LLM...")
                 relative_split_points = self._get_split_points_from_chunk(chunk)
-                print(f"  -> LLM返回分割点: {relative_split_points}。正在写入缓存...")
+                
+                # 为缓存构建可读的场景数据
+                chunk_scenes_for_cache = self._construct_scenes_for_chunk(chunk, relative_split_points)
+                
+                print(f"  -> LLM返回分割点: {relative_split_points}。正在写入可读缓存...")
                 with open(cache_file, 'w', encoding='utf-8') as f:
-                    json.dump(relative_split_points, f)
+                    json.dump(chunk_scenes_for_cache, f, ensure_ascii=False, indent=4)
 
             for point in relative_split_points:
                 if 0 <= point < len(chunk):
