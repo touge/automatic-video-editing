@@ -27,6 +27,76 @@ scene_detection:
     chunk_size: 50  # 每个区块包含的字幕片段数量
     overlap: 10     # 区块之间的重叠片段数量
 
+asset_search:
+  # 关键词搜索重试次数。0表示只尝试初始关键词，2表示初始+2轮Ollama生成的新关键词。
+  max_keyword_retries: 5
+
+# 视频合成参数
+video:
+  width: 1920
+  height: 1080
+  fps: 30
+  # 编码器。'libx264'是兼容性最好的CPU编码器。
+  # 如果有NVIDIA显卡，可以尝试 'h264_nvenc' 以获得硬件加速。
+  # 如果是Apple Silicon (M1/M2/M3)，可以尝试 'h264_videotoolbox'。
+  encoder: 'libx264'
+  # 单个素材片段的最长和最小时长（秒）。
+  # 用于将一个长场景切分为多个镜头，以增加视觉多样性。
+  max_clip_duration: 8.0
+  min_clip_duration: 3.0
+
 api_server:
   # 请修改为一个更长、更随机的安全密钥
   secret_key: "YOUR_SUPER_SECRET_API_KEY"
+
+prompts:
+  # 用于场景分割
+  scene_splitter: |
+    You are an expert video editor. Your task is to split a transcript into logical scenes for a fast-paced video.
+    Read the following numbered transcript. Identify the line numbers where a natural scene break occurs. A scene break is a significant change in topic, time, or location.
+    **Crucially, scenes should not be too long.** If a single topic spans many lines, find logical sub-points to create shorter scenes. Aim for scenes that are between 5 and 15 lines long.
+
+    List only the line numbers of the LAST line of each scene, separated by commas. For example: 8, 19, 28, 40, 49
+
+    Transcript:
+    {numbered_text}
+
+    Line numbers of scene breaks:
+
+  # 用于从场景文本生成中英文关键词
+  keyword_generator: |
+    You are a creative director and shot-list creator for video production.
+    Based on the scene description, your task is to:
+    1.  Add appropriate punctuation to the original text to make it a natural, readable sentence.
+    2.  Create a list of **up to 3** English keywords, suitable for searching stock video footage. These should be concrete, visual, and action-oriented. **The keywords must be sorted by relevance, with the most important one first.**
+    3.  Create a list of **up to 3** Chinese keywords that describe a sequence of shots, like a storyboard. **The keywords must be sorted by relevance, with the most important one first.**
+
+    You MUST return your response as a single, valid JSON object. Do not include any other text or explanations.
+
+    **Example:**
+    Scene Description: "一个24岁的中国女孩远赴意大利与父母团聚在异国他乡勤劳打拼"
+    Your JSON Response:
+    {{
+      "punctuated_text": "一个24岁的中国女孩，远赴意大利与父母团聚，在异国他乡勤劳打拼。",
+      "keywords_en": ["woman on airplane", "family hug at airport", "working hard abroad"],
+      "keywords_cn": ["一个女人坐飞机", "父母机场接机", "在异国努力工作"]
+    }}
+
+    Now, process the following scene.
+
+    Scene Description: "{scene_text}"
+
+    Your JSON Response:
+
+  # 用于在素材搜索失败时，生成新的关键词
+  asset_keyword_generator:
+    system: "You are an API that returns data in a specific format. Your entire response must be ONLY the requested data, without any explanations, reasoning, or conversational text."
+    user: |
+      Analyze the following scene description. Generate 3-5 diverse, specific, and visual English keywords for searching stock video footage.
+      - Focus on actions, objects, and moods.
+      - Do not use any of these existing keywords: {existing_keywords}
+      - Your response must be a single line of comma-separated keywords.
+
+      Scene: "{scene_text}"
+
+      Keywords:

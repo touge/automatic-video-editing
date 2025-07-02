@@ -1,17 +1,16 @@
 import sqlite3
 import os
-import random
 from typing import List, Set
+from pathlib import Path
 
-DB_PATH = os.path.join("storage", "asset_library.db")
-DB_DIR = os.path.dirname(DB_PATH)
+DB_PATH = Path("storage") / "asset_library.db"
 
 class DatabaseManager:
     """
     管理本地素材的SQLite数据库。
     """
     def __init__(self):
-        os.makedirs(DB_DIR, exist_ok=True)
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(DB_PATH)
         self.setup_database()
 
@@ -56,21 +55,43 @@ class DatabaseManager:
         cursor.execute("SELECT file_path FROM assets WHERE asset_source = ? AND source_id = ?", (asset_source, source_id))
         result = cursor.fetchone()
         # 如果找到了记录，但文件在磁盘上已被删除，则返回None
-        if result and os.path.exists(result[0]):
+        if result and Path(result[0]).exists():
             return result[0]
         return None
 
     def find_assets_by_keywords(self, keywords: List[str], limit: int) -> List[str]:
-        """通过关键词在数据库中搜索素材。"""
-        found_paths: Set[str] = set()
-        for keyword in keywords:
-            cursor = self.conn.cursor()
-            cursor.execute("SELECT file_path FROM assets WHERE keywords LIKE ?", (f"%{keyword.lower()}%",))
-            for row in cursor.fetchall():
-                if os.path.exists(row[0]):
-                    found_paths.add(row[0])
-        
-        return random.sample(list(found_paths), min(limit, len(found_paths)))
+        """
+        通过关键词在数据库中搜索素材，并根据匹配度排序。
+        匹配最多关键词的素材会排在最前面。
+        """
+        if not keywords:
+            return []
+
+        # 动态构建查询
+        # WHERE子句：匹配任何一个关键词
+        where_clauses = " OR ".join(["keywords LIKE ?"] * len(keywords))
+        # ORDER BY子句：计算匹配了多少个关键词，并按此降序排序
+        order_by_clauses = " + ".join(["(CASE WHEN keywords LIKE ? THEN 1 ELSE 0 END)"] * len(keywords))
+
+        # 查询参数。每个关键词在WHERE和ORDER BY中都用了一次。
+        params = [f"%{kw.lower()}%" for kw in keywords] * 2
+
+        # 最终查询语句，限制返回数量
+        query = f"""
+            SELECT file_path, ({order_by_clauses}) as match_score
+            FROM assets
+            WHERE {where_clauses}
+            ORDER BY match_score DESC
+            LIMIT ?
+        """
+        params.append(limit)
+
+        cursor = self.conn.cursor()
+        cursor.execute(query, tuple(params))
+
+        # 过滤掉磁盘上不存在的文件
+        valid_paths = [row[0] for row in cursor.fetchall() if Path(row[0]).exists()]
+        return valid_paths
 
     def __del__(self):
         if self.conn:

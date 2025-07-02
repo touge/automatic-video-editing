@@ -3,7 +3,14 @@ import ollama
 import os
 import json
 
-
+from src.logger import log
+from src.color_utils import (
+    print_colored,
+    print_error,
+    print_warning,
+    print_success,
+    print_info,
+)
 # 1. 将提示词模板定义为常量，以便复用和修改
 PROMPT_TEMPLATE = """You are a creative director and shot-list creator for video production.
 Based on the scene description, your task is to:
@@ -40,14 +47,14 @@ def _parse_llm_json_response(raw_text: str) -> dict | None:
         end_index = raw_text.rfind('}')
         
         if start_index == -1 or end_index == -1 or start_index > end_index:
-            print(f"警告: LLM响应中未找到有效的JSON对象。 响应: {raw_text[:200]}...")
+            log.warning("LLM响应中未找到有效的JSON对象。 响应: %r", raw_text[:200] + "...")
             return None
             
         json_str = raw_text[start_index : end_index + 1]
         return json.loads(json_str)
     except json.JSONDecodeError as e:
-        print(f"错误: 解析LLM的JSON响应失败: {e}")
-        print(f"原始响应: {raw_text}")
+        log.error("解析LLM的JSON响应失败: %s", e, exc_info=True)
+        log.debug("原始响应: %r", raw_text)
         return None
 
 def _extract_keywords_with_gemini(scenes: list, api_key: str) -> list:
@@ -57,7 +64,7 @@ def _extract_keywords_with_gemini(scenes: list, api_key: str) -> list:
     :param api_key: Google Gemini API 密钥。
     :return: 更新了关键词的场景列表。
     """
-    print("正在使用 Google Gemini API 提取关键词...")
+    print_info("正在使用 Google Gemini API 提取关键词...")
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel('gemini-1.5-pro-latest')
 
@@ -71,12 +78,12 @@ def _extract_keywords_with_gemini(scenes: list, api_key: str) -> list:
                 scene['text'] = parsed_data.get('punctuated_text', scene['text'])
                 scene['keywords_en'] = parsed_data.get('keywords_en', [])
                 scene['keywords_cn'] = parsed_data.get('keywords_cn', [])
-                print(f"场景: \"{scene['text'][:30]}...\" -> EN关键词: {scene.get('keywords_en')}")
+                print_info("场景: \"%s...\" -> EN关键词: %s", scene['text'][:30], scene.get('keywords_en'))
             else:
                 scene['keywords_en'] = []
                 scene['keywords_cn'] = []
         except Exception as e:
-            print(f"错误: 调用 Gemini API 失败，场景: \"{scene['text'][:30]}...\"。错误信息: {e}")
+            log.error("调用 Gemini API 失败，场景: \"%s...\"。", scene['text'][:30], exc_info=True)
             scene['keywords_en'] = []
             scene['keywords_cn'] = []
     return scenes
@@ -85,14 +92,13 @@ def _extract_keywords_with_ollama(scenes: list, model_name: str, host: str) -> l
     """
     使用本地 Ollama 服务提取关键词。
     """
-    print(f"正在使用 Ollama ({model_name} @ {host}) 提取关键词...")
+    print_info("正在使用 Ollama (%s @ %s) 提取关键词...", model_name, host)
     try:
         client = ollama.Client(host=host)
         # 检查模型是否已在本地拉取
         client.list()
     except Exception as e:
-        print(f"错误: 无法连接到 Ollama 服务 at {host}。请确保 Ollama 正在运行。")
-        print(f"错误信息: {e}")
+        log.error("无法连接到 Ollama 服务 at %s。请确保 Ollama 正在运行。", host, exc_info=True)
         for scene in scenes:
             scene['keywords_en'] = []
             scene['keywords_cn'] = []
@@ -109,12 +115,12 @@ def _extract_keywords_with_ollama(scenes: list, model_name: str, host: str) -> l
                 scene['text'] = parsed_data.get('punctuated_text', scene['text'])
                 scene['keywords_en'] = parsed_data.get('keywords_en', [])
                 scene['keywords_cn'] = parsed_data.get('keywords_cn', [])
-                print(f"场景: \"{scene['text'][:30]}...\" -> EN关键词: {scene.get('keywords_en')}")
+                print_info("场景: \"%s...\" -> EN关键词: %s", scene['text'][:30], scene.get('keywords_en'))
             else:
                 scene['keywords_en'] = []
                 scene['keywords_cn'] = []
         except Exception as e:
-            print(f"错误: 调用 Ollama API 失败，场景: \"{scene['text'][:30]}...\"。错误信息: {e}")
+            log.error("调用 Ollama API 失败，场景: \"%s...\"。", scene['text'][:30], exc_info=True)
             scene['keywords_en'] = []
             scene['keywords_cn'] = []
     return scenes
@@ -142,7 +148,7 @@ def extract_keywords_from_scenes(scenes: list, config: dict) -> list:
         return _extract_keywords_with_gemini(scenes, api_key=gemini_config['api_key'])
     # 如果两者都未配置
     else:
-        print("错误: Gemini 或 Ollama 均未在 config.yaml 中正确配置。程序将跳过关键词提取。")
+        log.error("Gemini 或 Ollama 均未在 config.yaml 中正确配置。程序将跳过关键词提取。")
         for scene in scenes:
             scene['keywords_en'] = []
             scene['keywords_cn'] = []
