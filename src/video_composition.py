@@ -1,5 +1,12 @@
 import ffmpeg
-
+from src.logger import log
+from src.color_utils import (
+    print_colored,
+    print_error,
+    print_warning,
+    print_success,
+    print_info,
+)
 def assemble_video(scene_clips: list, original_video_path: str, output_path: str):
     """
     将视频片段和音频合成为最终视频 (使用 ffmpeg-python)。
@@ -7,7 +14,7 @@ def assemble_video(scene_clips: list, original_video_path: str, output_path: str
     :param original_video_path: 带有原始音频的视频文件路径
     :param output_path: 输出视频文件路径
     """
-    print("开始使用 ffmpeg-python 合成最终视频...")
+    print_info("开始使用 ffmpeg-python 合成最终视频...")
 
     # 目标视频参数 (可以根据需要调整或放入配置文件)
     width = 1920
@@ -39,4 +46,4 @@ def assemble_video(scene_clips: list, original_video_path: str, output_path: str
         .output(concatenated_video, original_audio, output_path, vcodec='libx264', acodec='aac', strict='-2', loglevel='warning')
         .run(overwrite_output=True)
     )
-    print(f"视频合成完毕，已保存至: {output_path}")
+    print_info(f"视频合成完毕，已保存至: {output_path}")

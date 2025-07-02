@@ -1,6 +1,13 @@
 import ollama
 import json
-
+from src.logger import log
+from src.color_utils import (
+    print_colored,
+    print_error,
+    print_warning,
+    print_success,
+    print_info,
+)
 def _parse_llm_json_response(raw_text: str) -> list | None:
     """
     从LLM的原始输出中稳健地解析出JSON数组。
@@ -12,15 +19,15 @@ def _parse_llm_json_response(raw_text: str) -> list | None:
         end_index = raw_text.rfind(']')
         
         if start_index == -1 or end_index == -1 or start_index > end_index:
-            print("错误: LLM响应中未找到有效的JSON数组。")
-            print(f"原始响应: {raw_text}")
+            log.error("LLM响应中未找到有效的JSON数组。")
+            log.debug("原始响应: %r", raw_text)
             return None
             
         json_str = raw_text[start_index : end_index + 1]
         return json.loads(json_str)
     except json.JSONDecodeError as e:
-        print(f"错误: 解析LLM的JSON响应失败: {e}")
-        print(f"原始响应: {raw_text}")
+        log.error("解析LLM的JSON响应失败: %s", e, exc_info=True)
+        log.debug("原始响应: %r", raw_text)
         return None
 
 def group_segments_into_scenes(segments: list, config: dict) -> list:
@@ -33,10 +40,10 @@ def group_segments_into_scenes(segments: list, config: dict) -> list:
     """
     ollama_config = config.get('ollama', {})
     if not ollama_config.get('model'):
-        print("错误: Ollama未在config.yaml中配置。无法进行语义场景分割。")
+        log.error("Ollama未在config.yaml中配置。无法进行语义场景分割。")
         return []
 
-    print(f"正在使用Ollama ({ollama_config['model']}) 进行语义场景分割...")
+    print_info("正在使用Ollama (%s) 进行语义场景分割...", ollama_config['model'])
     
     # 1. 准备带行号的完整文稿，让LLM能够引用
     numbered_transcript = ""
@@ -79,10 +86,10 @@ Analyze the transcript and identify the scene breaks. For each scene, provide th
         response = client.generate(model=ollama_config['model'], prompt=prompt)
         scene_boundaries = _parse_llm_json_response(response['response'])
         if not scene_boundaries:
-            print("无法从LLM响应中解析场景边界。")
+            log.error("无法从LLM响应中解析场景边界。")
             return []
     except Exception as e:
-        print(f"错误: 调用Ollama API失败: {e}")
+        log.error("调用Ollama API失败。", exc_info=True)
         return []
 
     # 4. 根据LLM返回的行号，重新构建场景
@@ -94,7 +101,7 @@ Analyze the transcript and identify the scene breaks. For each scene, provide th
             end_index = int(boundary['end_line']) - 1
 
             if not (0 <= start_index < len(segments) and 0 <= end_index < len(segments) and start_index <= end_index):
-                print(f"警告: LLM返回了无效的行号范围: {boundary}。跳过此场景。")
+                log.warning("LLM返回了无效的行号范围: %s。跳过此场景。", boundary)
                 continue
 
             scene_segments = segments[start_index : end_index + 1]
@@ -112,8 +119,8 @@ Analyze the transcript and identify the scene breaks. For each scene, provide th
                 "keywords": [] # This will be populated in the next step
             })
         except (KeyError, ValueError, TypeError) as e:
-            print(f"警告: 解析LLM返回的场景边界 '{boundary}' 时出错: {e}。跳过此场景。")
+            log.warning("解析LLM返回的场景边界 '%s' 时出错: %s。跳过此场景。", boundary, e, exc_info=True)
             continue
             
-    print(f"字幕已通过LLM语义合并为 {len(scenes)} 个场景。")
+    print_info("字幕已通过LLM语义合并为 %d 个场景。", len(scenes))
     return scenes

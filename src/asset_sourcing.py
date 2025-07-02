@@ -1,7 +1,14 @@
 import os
 import requests
 import random
-
+from src.logger import log
+from src.color_utils import (
+    print_colored,
+    print_error,
+    print_warning,
+    print_success,
+    print_info,
+)
 def search_local_assets(keywords: list, local_path: str) -> str | None:
     """
     根据关键词在本地素材库中搜索。
@@ -10,12 +17,12 @@ def search_local_assets(keywords: list, local_path: str) -> str | None:
     :param local_path: 本地素材库路径
     :return: 匹配到的素材路径，如果没有则返回None
     """
-    print(f"正在本地搜索: {keywords}")
+    print_info(f"正在本地搜索: {keywords}")
     all_files = [f for f in os.listdir(local_path) if os.path.isfile(os.path.join(local_path, f))]
     for keyword in keywords:
         for file in all_files:
             if keyword.lower() in file.lower():
-                print(f"在本地找到匹配素材: {file}")
+                print_info(f"在本地找到匹配素材: {file}")
                 return os.path.join(local_path, file)
     return None
 
@@ -30,7 +37,7 @@ def search_online_assets(keywords: list, api_key: str, temp_dir: str) -> str | N
     if not keywords:
         return None
     query = " ".join(keywords)
-    print(f"正在在线搜索: {query}")
+    print_info(f"正在在线搜索: {query}")
     try:
         headers = {"Authorization": api_key}
         url = f"https://api.pexels.com/videos/search?query={query}&per_page=1"
@@ -47,9 +54,8 @@ def search_online_assets(keywords: list, api_key: str, temp_dir: str) -> str | N
         output_path = os.path.join(temp_dir, f"{query.replace(' ', '_')}_{random.randint(1000,9999)}.mp4")
         with open(output_path, 'wb') as f:
             f.write(video_res.content)
-        print(f"视频已下载到: {output_path}")
+        print_info(f"视频已下载到: {output_path}")
         return output_path
     except Exception as e:
-        print(f"在线搜索或下载失败: {e}")
+        log.error(f"在线搜索或下载失败: {e}", exc_info=True)
         return None
-

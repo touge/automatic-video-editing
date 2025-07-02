@@ -4,7 +4,9 @@ ffmpeg-python
 ollama
 google-generativeai
 openai-whisper
+colorama
 
 # API Server
 fastapi
 uvicorn[standard]
+tqdm
