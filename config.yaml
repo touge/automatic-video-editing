@@ -1,69 +1,112 @@
-# 文件路径配置
-paths:
-  local_assets_dir: "assets/local"
-
+# API Keys & Services
+# -------------------
+# 用于在线搜索视频素材和进行自然语言处理。
 # 前往 https://www.pexels.com/api/ 获取你的免费API Key
 pexels:
+  api_host: "https://api.pexels.com"
   api_key: "iNiHQpjN7TNllWGZxPztmUEx4StKko4CjJBq310RFPIlfiXPKZDxI6uk"
 
-# 前往 https://aistudio.google.com/app/apikey 获取你的免费API Key
+# 前往 https://pixabay.com/api/docs/ 获取你的免费API Key
+pixabay:
+  api_host: "https://pixabay.com"
+  api_key: "51157807-3d36b78ae5b3cdfd0b119a2eb"
+
+# (作为Ollama的备用方案，用于关键词提取)
 gemini:
   api_key: "AIzaSyDsbWrQDdO6wqvUyGfEdJxKU6FXTs6aQNQ"
 
-# Ollama 本地大模型配置
-# 1. 安装 Ollama: https://ollama.com/
-# 2. 在终端运行: ollama pull llama3
+# Local LLM Configuration
+# -----------------------
+# 用于场景分割和关键词生成。请确保Ollama服务正在运行。
 ollama:
-  model: "qwen3:14b-q8_0" # 或者 "qwen:7b", "gemma:7b" 等
-  host: "http://127.0.0.1:11434"
+  model: "qwen3:14b-q8_0" # 或者 "llama3" 等你已在本地拉取的模型
+  host: "http://192.168.0.253:11434" # Ollama服务地址
 
-# 场景检测配置
-scene_detection:
-  # 工具会尝试将字幕合并成大约这个时长的场景（单位：秒）
-  target_duration_seconds: 8.0
-
-  # 对长字幕进行分块处理的配置
-  splitter:
-    chunk_size: 50  # 每个区块包含的字幕片段数量
-    overlap: 10     # 区块之间的重叠片段数量
-
-asset_search:
-  # 关键词搜索重试次数。0表示只尝试初始关键词，2表示初始+2轮Ollama生成的新关键词。
-  max_keyword_retries: 5
-
-# 视频合成参数
+# Video Output Settings
+# ---------------------
 video:
   width: 1920
   height: 1080
   fps: 30
-  # 编码器。'libx264'是兼容性最好的CPU编码器。
-  # 如果有NVIDIA显卡，可以尝试 'h264_nvenc' 以获得硬件加速。
-  # 如果是Apple Silicon (M1/M2/M3)，可以尝试 'h264_videotoolbox'。
-  encoder: 'libx264'
-  # 单个素材片段的最长和最小时长（秒）。
-  # 用于将一个长场景切分为多个镜头，以增加视觉多样性。
+  # 单个视频片段在场景中的最大时长（秒）。
   max_clip_duration: 8.0
+  # 单个视频片段的最小市场（秒）。
   min_clip_duration: 3.0
+  # 字幕样式配置 (可选)
+  subtitles:
+    # 包含自定义字体文件 (.ttf, .otf) 的目录的路径。
+    # FFmpeg/libass 将会在此目录中查找字体。
+    font_dir: "assets/fonts"
+    # 要使用的字体名称 (必须是字体文件名或字体内部定义的名称)。
+    font_name: "方正粗雅宋长繁体"
+    # 字幕的字体大小。
+    font_size: 24
+    # 字幕的主要颜色 (ASS格式，例如 &H00FFFFFF 表示白色)。
+    primary_color: "&H00FFFFFF"
+    # 边框/描边的颜色 (ASS格式, &H00000000 表示黑色)。
+    outline_color: "&H00000000"
+    # 边框样式。1=带阴影的边框, 3=不透明背景框。
+    border_style: 1
+    # 边框/描边的宽度 (像素)。
+    outline: 1
+    # 阴影的深度 (像素)。
+    shadow: 0
+    # 字符间距 (像素)。
+    spacing: 0.5
+    # 字符间距 (像素)。
+    spacing: 0.5
+    # 垂直边距 (从视频底部算起，像素)。
+    margin_v: 60
+    # 字幕位置。你可以使用简单的对齐方式，或使用精确的坐标。
+    # alignment: 2 # 使用九宫格对齐 (1-9, 2=中下)
+    position:
+      x: 960 # X坐标 (视频中心为 1920 / 2 = 960)
+      y: 1020 # Y坐标 (视频底部为 1080)
+      # 锚点 (决定坐标点在字幕块的哪个位置):
+      # 1=左下, 2=中下, 3=右下, 4=左中, 5=中中, 6=右中, 7=左上, 8=中上, 9=右上
+      anchor: 2
+# File Paths
+# ----------
+paths:
+  # 你的本地视频素材库，下载的素材也会保存在这里。
+  local_assets_dir: "assets/local"
 
-api_server:
-  # 请修改为一个更长、更随机的安全密钥
-  secret_key: "YOUR_SUPER_SECRET_API_KEY"
+# Asset Search Strategy
+# ---------------------
+asset_search:
+  # 如果初始关键词搜索素材失败，使用LLM生成新关键词并重试的最大次数。
+  max_keyword_retries: 2
+  # 在线搜索时，为每个关键词请求的视频数量。
+  # 增加此值可以提高找到未使用素材的几率，但会增加API调用次数。
+  online_search_count: 15
 
+# Scene Detection Parameters
+# --------------------------
+# 用于阶段一的语义场景分割。
+scene_detection:
+  splitter:
+    # LLM一次处理的字幕行数。
+    chunk_size: 50
+    # 区块之间的重叠行数，以确保上下文连续性。
+    overlap: 10
+
+# Prompt Engineering
+# ------------------
+# 用于指导大语言模型完成特定任务的提示词模板。
 prompts:
-  # 用于场景分割
+  # 用于场景分割 (Stage 1)
   scene_splitter: |
-    You are an expert video editor. Your task is to split a transcript into logical scenes for a fast-paced video.
-    Read the following numbered transcript. Identify the line numbers where a natural scene break occurs. A scene break is a significant change in topic, time, or location.
-    **Crucially, scenes should not be too long.** If a single topic spans many lines, find logical sub-points to create shorter scenes. Aim for scenes that are between 5 and 15 lines long.
+    You are an expert in video editing. Your task is to analyze a script with numbered lines and identify the natural break points where a scene should change. A scene change can be indicated by a shift in topic, location, time, or emotional tone.
+    Your response MUST be a comma-separated list of the line numbers that mark the END of each scene.
+    For example, if the scenes end at lines 4, 8, and 12, your output should be "4, 8, 12".
+    Do not include any other text, explanations, or formatting.
 
-    List only the line numbers of the LAST line of each scene, separated by commas. For example: 8, 19, 28, 40, 49
-
-    Transcript:
+    Here is the script chunk:
+    ---
     {numbered_text}
+    ---
 
-    Line numbers of scene breaks:
-
-  # 用于从场景文本生成中英文关键词
+  # 用于为场景生成关键词 (Stage 1)
   keyword_generator: |
     You are a creative director and shot-list creator for video production.
     Based on the scene description, your task is to:
@@ -88,15 +131,17 @@ prompts:
 
     Your JSON Response:
 
-  # 用于在素材搜索失败时，生成新的关键词
+  # 用于在素材搜索失败后生成新的关键词 (Stage 2 retry)
   asset_keyword_generator:
-    system: "You are an API that returns data in a specific format. Your entire response must be ONLY the requested data, without any explanations, reasoning, or conversational text."
+    system: |
+      You are an AI assistant that helps find stock video footage. Your task is to generate new, diverse, and specific English keywords based on a scene description and a list of keywords that have already been tried and failed.
+      The new keywords should be concrete, visual, and describe actions, objects, or moods.
+      Your response MUST be a comma-separated list of 3-5 new keywords. Do not include any of the already tried keywords. Do not include any other text, explanations, or formatting.
     user: |
-      Analyze the following scene description. Generate 3-5 diverse, specific, and visual English keywords for searching stock video footage.
-      - Focus on actions, objects, and moods.
-      - Do not use any of these existing keywords: {existing_keywords}
-      - Your response must be a single line of comma-separated keywords.
+      The following keywords have already been tried and failed: {existing_keywords}
+      Generate new, different keywords for this scene: "{scene_text}"
 
-      Scene: "{scene_text}"
-
-      Keywords:
+# General Settings
+# ----------------
+# 设置为 true 以在视频合成时启用详细的 ffmpeg 日志，便于排查问题。
+debug: false

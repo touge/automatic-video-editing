@@ -27,6 +27,7 @@ class KeywordGenerator:
         self.ollama_config = config.get('ollama', {})
         if not self.ollama_config.get('model'):
             raise ValueError("Ollama未在config.yaml中配置。")
+        
         self.client = ollama.Client(host=self.ollama_config.get('host', 'http://localhost:11434'))
         self.prompt_template = config.get('prompts', {}).get('keyword_generator')
         if not self.prompt_template:

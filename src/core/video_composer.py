@@ -61,6 +61,9 @@ class VideoComposer:
         self.height = video_config.get('height', 1080)
         self.fps = video_config.get('fps', 30)
         
+        # 加载字幕配置
+        self.subtitle_config = video_config.get('subtitles', {})
+        
         # 调试模式，用于在执行ffmpeg命令时打印详细日志
         self.debug = self.config.get('debug', False)
 
@@ -327,7 +330,64 @@ class VideoComposer:
         if srt_path:
             # 在Windows上需要对路径进行特殊转义
             escaped_srt_path = _escape_ffmpeg_path(srt_path)
-            concat_cmd += ['-vf', f"subtitles={escaped_srt_path}"]
+            
+            # --- 构建字幕滤镜字符串 ---
+            subtitle_filter_parts = [f"subtitles={escaped_srt_path}"]
+            
+            font_dir = self.subtitle_config.get('font_dir')
+            if font_dir and os.path.isdir(font_dir):
+                escaped_font_dir = _escape_ffmpeg_path(Path(font_dir).resolve())
+                subtitle_filter_parts.append(f"fontsdir='{escaped_font_dir}'")
+            elif font_dir:
+                log.warning(f"指定的字体目录 '{font_dir}' 不存在或不是一个目录，将使用系统默认字体。")
+
+            # A mapping from our snake_case config keys to libass's CamelCase style keys.
+            # We handle position-related keys separately.
+            style_mapping = {
+                'font_name': 'FontName',
+                'font_size': 'FontSize',
+                'primary_color': 'PrimaryColour',
+                'outline_color': 'OutlineColour',
+                'border_style': 'BorderStyle',
+                'outline': 'Outline',
+                'shadow': 'Shadow',
+                'spacing': 'Spacing',
+            }
+            
+            style_options = [
+                f"{style_key}={value}"
+                for config_key, style_key in style_mapping.items()
+                if (value := self.subtitle_config.get(config_key)) is not None
+            ]
+
+            # --- Handle positioning ---
+            position_config = self.subtitle_config.get('position')
+            if isinstance(position_config, dict) and 'x' in position_config and 'y' in position_config:
+                # Advanced positioning using coordinates
+                x = position_config.get('x')
+                y = position_config.get('y')
+                anchor = position_config.get('anchor', 2) # Default to bottom-center anchor
+
+                style_options.append(f"Alignment={anchor}")
+                # MarginL and MarginR are relative to the video edge.
+                # We set them to the coordinate, and libass uses the one that's relevant
+                # based on the alignment. E.g., for left-aligned text, MarginL is used.
+                style_options.append(f"MarginL={x}")
+                style_options.append(f"MarginR={self.width - x}")
+                style_options.append(f"MarginV={self.height - y}")
+            else:
+                # Simple positioning using alignment and vertical margin
+                alignment = self.subtitle_config.get('alignment', 2) # Default to bottom-center
+                margin_v = self.subtitle_config.get('margin_v', 60) # Default to 60px from bottom
+                style_options.append(f"Alignment={alignment}")
+                style_options.append(f"MarginV={margin_v}")
+            
+            if style_options:
+                subtitle_filter_parts.append(f"force_style='{','.join(style_options)}'")
+            
+            final_filter_string = ':'.join(subtitle_filter_parts)
+            print_info(f"应用字幕滤镜: {final_filter_string}")
+            concat_cmd += ['-vf', final_filter_string]
         
         if hwaccel_qsv:
             concat_cmd += ['-hwaccel', 'qsv']

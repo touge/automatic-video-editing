@@ -68,8 +68,16 @@ def main(srt_file_name: str):
     print_info("修改完成后，请运行阶段二脚本并提供此任务ID。")
     print_info("############################################################")
 
+# if __name__ == "__main__":
+#     parser = argparse.ArgumentParser(description="阶段一：分析字幕并生成场景关键词。")
+#     parser.add_argument("--srt-file", dest="subtitle file", required=True, help="SRT字幕文件的路径 (可以是相对路径或绝对路径)。")
+#     args = parser.parse_args()
+#     main(args.srt_file)
+
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="阶段一：分析字幕并生成场景关键词。")
-    parser.add_argument("--with-subtitles", dest="srt_file", required=True, help="SRT字幕文件的路径 (可以是相对路径或绝对路径)。")
+    parser.add_argument("-s", "--srt-file", dest="srt_file", required=True, help="SRT字幕文件的路径 (可以是相对路径或绝对路径)。")
     args = parser.parse_args()
     main(args.srt_file)

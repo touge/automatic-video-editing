@@ -4,14 +4,26 @@ import json
 from src.logger import log
 from tqdm import tqdm
 import math
-
+from src.color_utils import (
+    print_colored,
+    print_error,
+    print_warning,
+    print_success,
+    print_info,
+)
 class SceneSplitter:
     def __init__(self, config: dict, task_id: str):
         self.config = config
         self.task_id = task_id
         self.ollama_config = config.get('ollama', {})
-        self.client = ollama.Client(host=self.ollama_config.get('host'))
+        if not self.ollama_config.get('model'):
+            raise ValueError("Ollama model not configured in config.yaml")
 
+        # 采用“乐观执行”策略，直接初始化客户端，在实际调用时处理错误。
+        self.client = ollama.Client(
+            host=self.ollama_config.get('host'),
+            timeout=self.ollama_config.get('timeout', 60)
+        )
         # 从配置中加载提示词模板
         prompts_config = self.config.get('prompts', {})
         self.prompt_template = prompts_config.get('scene_splitter')
@@ -45,6 +57,15 @@ class SceneSplitter:
             raw_points = [int(n.strip()) for n in content.split(',') if n.strip().isdigit()]
             split_points = sorted(list(set(raw_points))) # 去重并排序
             return split_points
+        except ollama.ResponseError as e:
+            # 捕获Ollama返回的特定错误，例如模型未找到
+            if "model" in e.error.lower() and "not found" in e.error.lower():
+                model_name = self.ollama_config.get('model')
+                log.error(f"Ollama错误: 模型 '{model_name}' 未找到。")
+                log.error(f"请确认模型名称是否正确，或通过 `ollama pull {model_name}` 拉取。")
+            else:
+                log.error(f"调用Ollama时发生API错误: {e.error}")
+            raise e # 重新抛出异常，中断程序
         except Exception as e:
             log.warning(f"调用Ollama进行场景分割时出错: {e}. 该区块将不会被分割。", exc_info=True)
             return []
