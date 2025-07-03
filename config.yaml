@@ -15,7 +15,7 @@ gemini:
 # 2. 在终端运行: ollama pull llama3
 ollama:
   model: "qwen3:14b-q8_0" # 或者 "qwen:7b", "gemma:7b" 等
-  host: "http://192.168.0.253:11434"
+  host: "http://127.0.0.1:11434"
 
 # 场景检测配置
 scene_detection:

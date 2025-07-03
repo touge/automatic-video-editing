@@ -209,4 +209,7 @@ __marimo__/
 python*
 python*/*
 assets/local/*
-sorage/tasks/*
+storage/*
+input/*
+output/*
+config.yaml
