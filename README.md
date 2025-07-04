@@ -34,17 +34,32 @@
     cd auto-cut-tool
     ```
 
-2.  **安装依赖**
+2.  **创建并激活虚拟环境 (推荐)**
+    为了避免与系统Python环境冲突，强烈建议使用虚拟环境。
+    ```bash
+    # 创建一个名为 .venv 的虚拟环境
+    python3 -m venv .venv
+    
+    # 激活虚拟环境 (macOS/Linux)
+    source .venv/bin/activate
+    ```
+
+3.  **安装依赖**
     项目的所有依赖都已在 `requirements.txt` 中列出。运行以下命令进行安装：
     ```bash
     pip install -r requirements.txt
     ```
 
-3.  **配置 API Keys**
-    打开 `config.yaml` 文件，填入你的API Keys，并根据需要配置Ollama。
+4.  **创建配置文件**
+    项目包含一个配置模板 `config.example.yaml`。请将它复制一份并重命名为 `config.yaml`：
+    ```bash
+    cp config.example.yaml config.yaml
+    ```
+    **重要**: `config.yaml` 文件已被添加到 `.gitignore` 中，不会被提交到版本库，以保护您的密钥安全。
+
+5.  **编辑配置文件**
+    打开你刚刚创建的 `config.yaml` 文件，填入你的API Keys，并根据需要配置Ollama和API服务密钥。
     ```yaml
-    # ...
-    
     # 前往 https://www.pexels.com/api/ 获取你的免费API Key
     pexels:
       api_key: "YOUR_PEXELS_API_KEY_HERE"
@@ -57,6 +72,10 @@
     ollama:
       model: "qwen2:7b" # 或者 "llama3" 等你已拉取的模型
       host: "http://localhost:11434" # Ollama服务地址
+
+    # API服务配置
+    api_server:
+      secret_key: "CHANGE_THIS_TO_A_LONG_RANDOM_SECRET_KEY"
       
     # ...
     ```

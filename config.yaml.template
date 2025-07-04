@@ -4,23 +4,27 @@
 # 前往 https://www.pexels.com/api/ 获取你的免费API Key
 pexels:
   api_host: "https://api.pexels.com"
-  api_key: "iNiHQpjN7TNllWGZxPztmUEx4StKko4CjJBq310RFPIlfiXPKZDxI6uk"
+  api_key: "YOUR-PRIMARY-KEY"
 
 # 前往 https://pixabay.com/api/docs/ 获取你的免费API Key
 pixabay:
   api_host: "https://pixabay.com"
-  api_key: "51157807-3d36b78ae5b3cdfd0b119a2eb"
+  api_key: "YOUR-PRIMARY-KEY"
 
 # (作为Ollama的备用方案，用于关键词提取)
 gemini:
-  api_key: "AIzaSyDsbWrQDdO6wqvUyGfEdJxKU6FXTs6aQNQ"
+  api_key: "YOUR-PRIMARY-KEY"
 
 # Local LLM Configuration
 # -----------------------
 # 用于场景分割和关键词生成。请确保Ollama服务正在运行。
 ollama:
   model: "qwen3:14b-q8_0" # 或者 "llama3" 等你已在本地拉取的模型
-  host: "http://192.168.0.253:11434" # Ollama服务地址
+  host: "http://localhost:11434" # Ollama服务地址
+
+api_server:
+  # 请修改为一个更长、更随机的安全密钥，例如通过密码管理器生成
+  secret_key: "CHANGE_THIS_TO_A_LONG_RANDOM_SECRET_KEY"
 
 # Video Output Settings
 # ---------------------
@@ -36,7 +40,7 @@ video:
   subtitles:
     # 包含自定义字体文件 (.ttf, .otf) 的目录的路径。
     # FFmpeg/libass 将会在此目录中查找字体。
-    font_dir: "assets/fonts"
+    font_dir: "assets/styles/fonts"
     # 要使用的字体名称 (必须是字体文件名或字体内部定义的名称)。
     font_name: "方正粗雅宋长繁体"
     # 字幕的字体大小。
@@ -56,7 +60,7 @@ video:
     # 字幕对齐方式 (使用数字小键盘布局): 1=左下, 2=中下, 3=右下, 5=中中, 8=中上, etc.
     alignment: 2
     # 垂直边距 (像素)。对于底部对齐，这是字幕距离视频底部的距离。增加此值可将字幕向上推。
-    vertical_margin: 60
+    vertical_margin: 30
 # File Paths
 # ----------
 paths:

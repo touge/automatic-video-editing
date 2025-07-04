@@ -22,6 +22,10 @@ ollama:
   model: "qwen3:14b-q8_0" # 或者 "llama3" 等你已在本地拉取的模型
   host: "http://192.168.0.253:11434" # Ollama服务地址
 
+api_server:
+  # 请修改为一个更长、更随机的安全密钥，例如通过密码管理器生成
+  secret_key: "CHANGE_THIS_TO_A_LONG_RANDOM_SECRET_KEY"
+
 # Video Output Settings
 # ---------------------
 video:
