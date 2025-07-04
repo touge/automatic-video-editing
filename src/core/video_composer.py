@@ -29,17 +29,19 @@ def _escape_ffmpeg_path(path: str | Path) -> str:
 def _scenes_to_srt(scenes: list, srt_path: str):
     """将场景数据转换为SRT字幕文件"""
     with open(srt_path, 'w', encoding='utf-8') as f:
-        current_time = 0.0
         for i, scene in enumerate(scenes):
-            duration = scene.get('duration', 0)
-            start_time = current_time
-            end_time = start_time + duration
+            # 使用场景分割时确定的精确起止时间
+            start_time = scene.get('scene_start', 0)
+            end_time = scene.get('scene_end', 0)
             text = scene['text']
+
+            if end_time <= start_time:
+                continue
 
             start_h, rem = divmod(start_time, 3600)
             start_m, rem = divmod(rem, 60)
             start_s, start_ms = divmod(rem, 1)
-            
+
             end_h, rem = divmod(end_time, 3600)
             end_m, rem = divmod(rem, 60)
             end_s, end_ms = divmod(rem, 1)
@@ -48,7 +50,6 @@ def _scenes_to_srt(scenes: list, srt_path: str):
             f.write(f"{int(start_h):02}:{int(start_m):02}:{int(start_s):02},{int(start_ms*1000):03} --> "
                     f"{int(end_h):02}:{int(end_m):02}:{int(end_s):02},{int(end_ms*1000):03}\n")
             f.write(f"{text}\n\n")
-            current_time = end_time
 
 class VideoComposer:
     def __init__(self, config: dict, task_id: str):
@@ -261,13 +262,13 @@ class VideoComposer:
 
     def assemble_video(self, scenes: list, scene_asset_paths: list, audio_path: str, subtitle_option: str | None):
         """
-        采用分阶段、缓存驱动的策略，将视频片段和音频合成为最终视频。
+        采用分阶段、多级缓存的策略，将视频片段和音频合成为最终视频。
         """
         print_info("--- 开始视频合成流程 ---")
         final_video_path = self.task_path / "final_video.mp4"
 
-        # 步骤 0: 准备工作
-        print_info("=> 准备工作: 检测编码器并整理素材列表...")
+        # --- 阶段 1/5: 准备工作 ---
+        print_info("--- 阶段 1/5: 准备工作与素材检查 ---")
         codec, extra_args, hwaccel_qsv = self._detect_video_encoder()
         codec_info = (codec, extra_args, hwaccel_qsv)
 
@@ -279,29 +280,86 @@ class VideoComposer:
             log.error("错误: 没有可用的视频素材路径。")
             return
 
-        # 步骤 1: 裁剪并标准化所有视频片段（生成缓存）
-        print_info(f"--- 阶段 1/4: 裁剪与标准化 {len(all_asset_paths)} 个视频片段 ---")
+        # --- 阶段 2/5: 准备视频片段 ---
+        print_info(f"--- 阶段 2/5: 检查并准备 {len(all_asset_paths)} 个视频片段 ---")
         processed_segments = []
-        with tqdm(total=len(all_asset_paths), desc="裁剪片段", unit="个") as pbar:
+        all_segments_cached = True
+        with tqdm(total=len(all_asset_paths), desc="准备片段", unit="个") as pbar:
             for i, (src_path, duration) in enumerate(zip(all_asset_paths, all_duration_parts)):
                 dst_path = self.cache_path / f"seg_{i:04d}.mp4"
-                self._trim_and_normalize_segment(src_path, duration, dst_path, codec_info)
+                if not dst_path.exists():
+                    all_segments_cached = False
+                    self._trim_and_normalize_segment(src_path, duration, dst_path, codec_info)
+
                 if dst_path.exists():
                     processed_segments.append(dst_path)
                 pbar.update(1)
 
+        if all_segments_cached:
+            print_info("所有视频片段均已从缓存加载。")
+
         if not processed_segments:
             log.error("错误: 未能成功处理任何视频片段，无法继续合成。")
             return
-        
-        # 步骤 2: 拼接视频
-        print_info("--- 阶段 2/4: 拼接所有处理过的片段 ---")
-        concat_list_path = self.cache_path / "concat_list.txt"
-        self._make_concat_list(processed_segments, concat_list_path)
 
-        video_only_path = self.cache_path / "video_only.mp4"
-        
-        # 处理字幕
+        # --- 阶段 3/5: 拼接纯净视频 (无声、无字幕) ---
+        print_info("--- 阶段 3/5: 拼接纯净视频 ---")
+        concatenated_video_path = self.cache_path / "video_only_concatenated.mp4"
+        if concatenated_video_path.exists():
+            print_info(f"发现已缓存的拼接视频 ({concatenated_video_path.name})，跳过拼接步骤。")
+        else:
+            concat_list_path = self.cache_path / "concat_list.txt"
+            self._make_concat_list(processed_segments, concat_list_path)
+
+            # 由于所有片段都已标准化，我们可以安全地使用流拷贝，这非常快
+            concat_cmd = [
+                'ffmpeg', '-y',
+                '-protocol_whitelist', 'file,concat',
+                '-fflags', '+genpts',
+                '-f', 'concat', '-safe', '0',
+                '-i', str(concat_list_path.resolve()),
+                '-c:v', 'copy',
+                str(concatenated_video_path)
+            ]
+            try:
+                print_info("正在拼接视频片段...")
+                self._run_cmd(concat_cmd)
+                print_success("纯净视频拼接完成。")
+            except CalledProcessError:
+                log.error("拼接纯净视频失败，程序终止。")
+                return
+
+        # --- 阶段 4/5: 合并音频 ---
+        print_info("--- 阶段 4/5: 合并背景音频 ---")
+        video_with_audio_path = self.cache_path / "video_with_audio.mp4"
+        audio_file_path = Path(audio_path)
+
+        if video_with_audio_path.exists():
+            print_info(f"发现已缓存的带音频视频 ({video_with_audio_path.name})，跳过音频合并。")
+        elif not audio_file_path.exists():
+            log.warning(f"音频文件 {audio_path} 未找到，将跳过音频合并。最终视频将是无声的。")
+            shutil.copy(str(concatenated_video_path), str(video_with_audio_path))
+        else:
+            merge_cmd = [
+                'ffmpeg', '-y',
+                '-i', str(concatenated_video_path),
+                '-i', str(audio_file_path),
+                '-c:v', 'copy',
+                '-c:a', 'aac',
+                '-map', '0:v:0',
+                '-map', '1:a:0',
+                '-shortest',
+                str(video_with_audio_path)
+            ]
+            try:
+                self._run_ffmpeg_with_progress(merge_cmd, total_duration, "合并音频")
+                print_success("音频合并完成。")
+            except CalledProcessError:
+                log.error("音频合并失败，程序终止。")
+                return
+
+        # --- 阶段 5/5: 烧录字幕并生成最终视频 ---
+        print_info("--- 阶段 5/5: 生成最终视频 ---")
         srt_path = None
         if subtitle_option:
             if subtitle_option == "GENERATE":
@@ -311,130 +369,50 @@ class VideoComposer:
             else:
                 srt_path_obj = Path(subtitle_option)
                 if srt_path_obj.exists():
-                    print_info(f"使用指定的字幕文件: {subtitle_option}")
-                    # 为安全起见，将字幕文件复制到缓存目录
                     srt_path = self.cache_path / srt_path_obj.name
                     shutil.copy(srt_path_obj, srt_path)
                 else:
                     log.warning(f"指定的字幕文件 {subtitle_option} 未找到，将不添加字幕。")
 
-        concat_cmd = [
-            'ffmpeg','-y',
-            '-protocol_whitelist','file,concat',
-            '-fflags','+genpts',
-            '-f','concat','-safe','0',
-            '-i', str(concat_list_path.resolve()),
-            '-avoid_negative_ts','make_zero',
-            '-avoid_negative_ts', 'make_zero',
-        ]
         if srt_path:
-            # 在Windows上需要对路径进行特殊转义
+            print_info("正在烧录字幕...")
             escaped_srt_path = _escape_ffmpeg_path(srt_path)
-            
-            # --- 构建字幕滤镜字符串 ---
+
             subtitle_filter_parts = [f"subtitles={escaped_srt_path}"]
-            
             font_dir = self.subtitle_config.get('font_dir')
             if font_dir and os.path.isdir(font_dir):
                 escaped_font_dir = _escape_ffmpeg_path(Path(font_dir).resolve())
                 subtitle_filter_parts.append(f"fontsdir='{escaped_font_dir}'")
-            elif font_dir:
-                log.warning(f"指定的字体目录 '{font_dir}' 不存在或不是一个目录，将使用系统默认字体。")
 
-            # A mapping from our snake_case config keys to libass's CamelCase style keys.
-            # We handle position-related keys separately.
             style_mapping = {
-                'font_name': 'FontName',
-                'font_size': 'FontSize',
-                'primary_color': 'PrimaryColour',
-                'outline_color': 'OutlineColour',
-                'border_style': 'BorderStyle',
-                'outline': 'Outline',
-                'shadow': 'Shadow',
-                'spacing': 'Spacing',
+                'font_name': 'FontName', 'font_size': 'FontSize',
+                'primary_color': 'PrimaryColour', 'outline_color': 'OutlineColour',
+                'border_style': 'BorderStyle', 'outline': 'Outline', 'shadow': 'Shadow', 'spacing': 'Spacing',
+                'alignment': 'Alignment', 'vertical_margin': 'MarginV',
             }
-            
-            style_options = [
-                f"{style_key}={value}"
-                for config_key, style_key in style_mapping.items()
-                if (value := self.subtitle_config.get(config_key)) is not None
-            ]
+            style_options = [f"{style_key}={value}" for config_key, style_key in style_mapping.items() if (value := self.subtitle_config.get(config_key)) is not None]
 
-            # --- Handle positioning ---
-            position_config = self.subtitle_config.get('position')
-            if isinstance(position_config, dict) and 'x' in position_config and 'y' in position_config:
-                # Advanced positioning using coordinates
-                x = position_config.get('x')
-                y = position_config.get('y')
-                anchor = position_config.get('anchor', 2) # Default to bottom-center anchor
-
-                style_options.append(f"Alignment={anchor}")
-                # MarginL and MarginR are relative to the video edge.
-                # We set them to the coordinate, and libass uses the one that's relevant
-                # based on the alignment. E.g., for left-aligned text, MarginL is used.
-                style_options.append(f"MarginL={x}")
-                style_options.append(f"MarginR={self.width - x}")
-                style_options.append(f"MarginV={self.height - y}")
-            else:
-                # Simple positioning using alignment and vertical margin
-                alignment = self.subtitle_config.get('alignment', 2) # Default to bottom-center
-                margin_v = self.subtitle_config.get('margin_v', 60) # Default to 60px from bottom
-                style_options.append(f"Alignment={alignment}")
-                style_options.append(f"MarginV={margin_v}")
-            
             if style_options:
                 subtitle_filter_parts.append(f"force_style='{','.join(style_options)}'")
-            
+
             final_filter_string = ':'.join(subtitle_filter_parts)
-            print_info(f"应用字幕滤镜: {final_filter_string}")
-            concat_cmd += ['-vf', final_filter_string]
-        
-        if hwaccel_qsv:
-            concat_cmd += ['-hwaccel', 'qsv']
-        
-        # concat_cmd += ['-c:v', codec, *extra_args, '-c:a', 'aac', str(video_only_path)]
-        concat_cmd += ['-c:v','libx264','-preset','veryfast','-c:a','aac', str(video_only_path)]
 
-        try:
-            self._run_ffmpeg_with_progress(concat_cmd, total_duration, "拼接视频")
-        except CalledProcessError:
-            log.error("视频拼接失败，程序终止。")
-            return
-
-        # 步骤 3: 合并音频
-        print_info("--- 阶段 3/4: 合并背景音频 ---")
-        audio_file_path = Path(audio_path)
-        if not audio_file_path.exists():
-            log.warning(f"音频文件 {audio_path} 未找到，将跳过音频合并。最终视频将是无声的。")
-            shutil.move(str(video_only_path), str(final_video_path))
-        else:
-            merge_cmd = [
+            final_cmd = [
                 'ffmpeg', '-y',
-                '-i', str(video_only_path),
-                '-i', str(audio_file_path),
-                '-c:v', 'copy',
-                '-c:a', 'aac',
-                '-map', '0:v:0',
-                '-map', '1:a:0',
-                '-shortest',
+                '-i', str(video_with_audio_path),
+                '-vf', final_filter_string,
+                '-c:v', codec, *extra_args,
+                '-c:a', 'copy',
                 str(final_video_path)
             ]
             try:
-                self._run_ffmpeg_with_progress(merge_cmd, total_duration, "合并音频")
+                self._run_ffmpeg_with_progress(final_cmd, total_duration, "烧录字幕")
             except CalledProcessError:
-                log.error("音频合并失败，程序终止。")
+                log.error("烧录字幕失败，程序终止。")
                 return
-
-        # # 步骤 4: 清理
-        # print_info("--- 阶段 4/4: 清理临时文件 ---")
-        # if not self.debug:
-        #     try:
-        #         shutil.rmtree(self.cache_path)
-        #         print_info("已成功删除缓存目录。")
-        #     except OSError as e:
-        #         log.warning(f"删除缓存目录 {self.cache_path} 失败: {e}")
-        # else:
-        #     print_info(f"调试模式开启，缓存文件保留在: {self.cache_path}")
+        else:
+            print_info("无需烧录字幕，直接复制文件...")
+            shutil.copy(str(video_with_audio_path), str(final_video_path))
 
         print_success("\n############################################################")
         print_success(f"✔ 视频合成成功！")
