@@ -1,7 +1,7 @@
 import os
 import argparse
 import math
-from src.utils import load_config, load_scenes_from_json, save_scenes_to_json
+from src.utils import load_config, load_scenes_from_json, save_scenes_to_json, check_ollama_service
 from tqdm import tqdm
 from src.core.asset_manager import AssetManager
 from src.core.video_composer import VideoComposer
@@ -67,6 +67,11 @@ def main(task_id: str, audio_file: str, subtitle_option: str | bool | None):
     print_info(f"\n--- 阶段二: 从任务 {task_id} 创建视频 ---")
 
     config = load_config()
+
+    # 在执行任何操作前，检查Ollama服务
+    # 因为AssetManager可能会调用Ollama来生成新的关键词
+    check_ollama_service(config)
+
     # 检查音频文件是否存在
     audio_path = audio_file
     if not os.path.exists(audio_path):

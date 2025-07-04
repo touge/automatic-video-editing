@@ -69,7 +69,7 @@ class VideoComposer:
         self.debug = self.config.get('debug', False)
 
         # 为每个阶段的产出物（缓存）创建一个目录
-        self.cache_path = self.task_path / "cache"
+        self.cache_path = self.task_path / ".cache/segs"
         self.cache_path.mkdir(parents=True, exist_ok=True)
 
     def _detect_video_encoder(self) -> tuple[str, list, bool]:
@@ -296,17 +296,17 @@ class VideoComposer:
                 pbar.update(1)
 
         if all_segments_cached:
-            print_info("所有视频片段均已从缓存加载。")
+            print_success("所有视频片段均已从缓存加载。")
 
         if not processed_segments:
-            log.error("错误: 未能成功处理任何视频片段，无法继续合成。")
+            print_error("错误: 未能成功处理任何视频片段，无法继续合成。")
             return
 
         # --- 阶段 3/5: 拼接纯净视频 (无声、无字幕) ---
         print_info("--- 阶段 3/5: 拼接纯净视频 ---")
         concatenated_video_path = self.cache_path / "video_only_concatenated.mp4"
         if concatenated_video_path.exists():
-            print_info(f"发现已缓存的拼接视频 ({concatenated_video_path.name})，跳过拼接步骤。")
+            print_success(f"发现已缓存的拼接视频 ({concatenated_video_path.name})，跳过拼接步骤。")
         else:
             concat_list_path = self.cache_path / "concat_list.txt"
             self._make_concat_list(processed_segments, concat_list_path)
@@ -335,7 +335,7 @@ class VideoComposer:
         audio_file_path = Path(audio_path)
 
         if video_with_audio_path.exists():
-            print_info(f"发现已缓存的带音频视频 ({video_with_audio_path.name})，跳过音频合并。")
+            print_success(f"发现已缓存的带音频视频 ({video_with_audio_path.name})，跳过音频合并。")
         elif not audio_file_path.exists():
             log.warning(f"音频文件 {audio_path} 未找到，将跳过音频合并。最终视频将是无声的。")
             shutil.copy(str(concatenated_video_path), str(video_with_audio_path))
@@ -411,10 +411,10 @@ class VideoComposer:
                 log.error("烧录字幕失败，程序终止。")
                 return
         else:
-            print_info("无需烧录字幕，直接复制文件...")
+            print_success("无需烧录字幕，直接复制文件...")
             shutil.copy(str(video_with_audio_path), str(final_video_path))
 
-        print_success("\n############################################################")
+        print_info("\n############################################################")
         print_success(f"✔ 视频合成成功！")
         print_success(f"==> 输出文件位于: {final_video_path}")
-        print_success("############################################################")
+        print_info("############################################################")

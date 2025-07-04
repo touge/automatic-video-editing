@@ -35,7 +35,7 @@ class SceneSplitter:
         self.overlap = splitter_config.get('overlap', 10)
 
         # 创建用于缓存区块分割结果的目录
-        self.cache_dir = os.path.join("storage", "tasks", self.task_id, "scene_split_cache")
+        self.cache_dir = os.path.join("storage", "tasks", self.task_id, ".cache","scenes_split")
         os.makedirs(self.cache_dir, exist_ok=True)
 
     def _get_split_points_from_chunk(self, chunk_segments: list) -> list[int]:

@@ -2,6 +2,8 @@ import yaml
 import json
 import os
 import uuid
+import ollama
+import sys
 from src.logger import log
 
 from src.color_utils import (
@@ -49,3 +51,28 @@ def load_scenes_from_json(task_id: str) -> list:
     except FileNotFoundError:
         log.error(f"错误: 场景文件 {file_path} 未找到。请先运行阶段一。")
         return []
+
+def check_ollama_service(config: dict):
+    """
+    检查Ollama服务是否可达。如果不可达，则打印错误并中止程序。
+    """
+    # 检查配置中是否启用了Ollama
+    ollama_config = config.get('ollama', {})
+    if not ollama_config.get('model'):
+        # 如果配置中没有指定Ollama模型，则认为不需要使用Ollama，跳过检查。
+        return
+
+    host = ollama_config.get('host', 'http://localhost:11434')
+    timeout = 5 # 使用固定的5秒超时进行快速检查
+
+    print_info(f"正在检查Ollama服务状态 at {host}...")
+    try:
+        # 使用一个专门的客户端和较短的超时时间来进行快速连接检查
+        client = ollama.Client(host=host, timeout=timeout)
+        # 执行一个轻量级命令来确认服务不仅在运行，而且模型API也准备好了
+        client.list()
+        print_success("Ollama服务连接正常。")
+    except Exception:
+        print_error(f"无法在{timeout}秒内连接到Ollama服务 at {host}。")
+        print_error("请确认Ollama服务是否已启动，并且网络连接正常。程序将中止。")
+        sys.exit(1) # 中止程序

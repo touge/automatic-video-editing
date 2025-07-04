@@ -26,8 +26,8 @@ def run_stage_1_and_get_task_id(srt_path: str) -> str:
     通过子进程调用阶段一脚本，并从其输出中解析task_id。
     如果失败则抛出异常。
     """
-    script_path = "run_stage_1_analysis.py"
-    command = ["python", script_path, "--with-subtitles", srt_path]
+    script_path = "analysis.py"
+    command = ["python", script_path, "--srt-file", srt_path]
     
     try:
         result = subprocess.run(
@@ -43,10 +43,14 @@ def run_stage_1_and_get_task_id(srt_path: str) -> str:
             print(f"成功解析到任务ID: {task_id}")
             return task_id
         else:
-            raise RuntimeError(f"无法从阶段一脚本的输出中解析任务ID。脚本输出: {output}")
+            # 脚本成功执行但输出不符合预期，包含 stderr 以便调试
+            error_details = f"STDOUT: {output}\nSTDERR: {result.stderr}"
+            raise RuntimeError(f"无法从阶段一脚本的输出中解析任务ID。脚本输出详情:\n{error_details}")
             
     except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"阶段一脚本执行失败: {e.stderr}")
+        # 脚本执行失败（非零退出码），包含 stdout 和 stderr
+        error_details = f"STDOUT: {e.stdout}\nSTDERR: {e.stderr}"
+        raise RuntimeError(f"阶段一脚本执行失败 (exit code {e.returncode})。\n{error_details}")
     except FileNotFoundError:
         raise RuntimeError(f"找不到脚本 {script_path}。请确保从项目根目录运行API服务器。")
 

@@ -1,22 +1,43 @@
-import uvicorn
+import os
 from fastapi import FastAPI
-from api.endpoints import router as api_router
+from fastapi.openapi.utils import get_openapi
 
-app = FastAPI(
-    title="智能视频剪辑工具 API",
-    description="通过API驱动的自动化视频剪辑流程",
-    version="1.0.0",
-)
+from api.routers import analysis, composition, status, download
+from api.auth import API_KEY_NAME
 
-# 包含来自endpoints.py的路由
-app.include_router(api_router)
+app = FastAPI(title="Video Composition API", version="1.0.0")
 
-@app.get("/", summary="API根路径", include_in_schema=False)
-async def root():
-    return {"message": "欢迎使用智能视频剪辑工具 API。请访问 /docs 查看API文档。"}
+# 挂载路由
+app.include_router(analysis.router)
+app.include_router(composition.router)
+app.include_router(status.router)
+app.include_router(download.router)
+
+# 自定义 OpenAPI，让 Swagger UI 出现 Authorize 弹窗
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        routes=app.routes,
+    )
+    schema["components"]["securitySchemes"] = {
+        "ApiKeyAuth": {
+            "type": "apiKey",
+            "in": "header",
+            "name": API_KEY_NAME,
+        }
+    }
+    for path_item in schema["paths"].values():
+        for op in path_item.values():
+            op.setdefault("security", []).append({"ApiKeyAuth": []})
+    app.openapi_schema = schema
+    return schema
+
+app.openapi = custom_openapi
 
 if __name__ == "__main__":
-    # 运行命令: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
-    # 注意：uvicorn命令需要从项目根目录运行，以确保模块路径正确。
+    import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
-
+sss

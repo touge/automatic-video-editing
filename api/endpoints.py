@@ -9,12 +9,11 @@ from typing import Annotated
 from api.auth import verify_api_key
 from api.utils import save_upload_file, run_stage_1_and_get_task_id, composition_task_wrapper
 from src.utils import get_task_path
-
+ 
 router = APIRouter()
-
+ 
 @router.post("/v1/analysis",
-             summary="阶段一：分析字幕",
-             dependencies=[Depends(verify_api_key)])
+             summary="阶段一：分析字幕")
 async def create_analysis_task(subtitles: UploadFile = File(..., description="SRT字幕文件")):
     """
     上传一个SRT字幕文件，启动分析流程。
@@ -36,8 +35,7 @@ async def create_analysis_task(subtitles: UploadFile = File(..., description="SR
             os.remove(srt_path)
 
 @router.post("/v1/composition",
-             summary="阶段二：合成视频 (后台任务)",
-             dependencies=[Depends(verify_api_key)])
+             summary="阶段二：合成视频 (后台任务)")
 async def create_composition_task(
     background_tasks: BackgroundTasks,
     task_id: Annotated[str, Form(description="阶段一返回的任务ID")],
@@ -58,8 +56,7 @@ async def create_composition_task(
     return {"message": "视频合成任务已在后台启动。", "task_id": task_id}
 
 @router.get("/v1/status/{task_id}",
-            summary="查询任务状态",
-            dependencies=[Depends(verify_api_key)])
+            summary="查询任务状态")
 async def get_task_status(task_id: str):
     """
     根据任务ID查询视频合成的状态。
@@ -77,8 +74,7 @@ async def get_task_status(task_id: str):
         return {"task_id": task_id, "status": "PENDING_OR_IN_PROGRESS", "detail": "视频正在合成中或等待合成。"}
 
 @router.get("/v1/download/{task_id}",
-            summary="下载最终视频",
-            dependencies=[Depends(verify_api_key)])
+            summary="下载最终视频")
 async def download_video(task_id: str):
     """
     根据任务ID下载已合成的最终视频。

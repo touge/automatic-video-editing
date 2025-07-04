@@ -35,15 +35,15 @@ class AssetManager:
         self.video_providers: List[BaseVideoProvider] = []
         # 1. 优先添加本地提供者
         if self.local_assets_path and os.path.isdir(self.local_assets_path):
-            print_info("本地素材提供者已启用。")
+            print_success("本地素材提供者已启用。")
             self.video_providers.append(LocalProvider(self.config))
 
         # 2. 添加在线提供者
         if config.get('pexels', {}).get('api_key') and "YOUR_PEXELS_API_KEY_HERE" not in config.get('pexels', {}).get('api_key'):
-            print_info("Pexels 提供者已启用。")
+            print_success("Pexels 提供者已启用。")
             self.video_providers.append(PexelsProvider(self.config))
         if config.get('pixabay', {}).get('api_key') and "YOUR_PIXABAY_API_KEY_HERE" not in config.get('pixabay', {}).get('api_key'):
-            print_info("Pixabay 提供者已启用。")
+            print_success("Pixabay 提供者已启用。")
             self.video_providers.append(PixabayProvider(self.config))
 
         if not self.ollama_config.get('model'):

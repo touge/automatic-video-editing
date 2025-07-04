@@ -11,3 +11,4 @@ rich
 fastapi
 uvicorn[standard]
 tqdm
+python-multipart
