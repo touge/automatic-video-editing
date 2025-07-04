@@ -1,11 +1,10 @@
 import os
-import sys
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, status, BackgroundTasks, Form
 from fastapi.responses import FileResponse, JSONResponse
 from typing import Annotated
 
-# 将项目根目录添加到Python路径
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# 根据 README.md 中的启动说明 (从项目根目录运行 uvicorn)，Python 会自动将根目录加入 sys.path。
+# 因此，不再需要手动修改路径。
 
 from api.auth import verify_api_key
 from api.utils import save_upload_file, run_stage_1_and_get_task_id, composition_task_wrapper
@@ -51,7 +50,7 @@ async def create_composition_task(
     """
     audio_path = save_upload_file(audio)
     subtitle_path = save_upload_file(subtitles) if subtitles else None
-
+    
     # 将耗时的合成任务添加到后台
     # wrapper函数负责在任务结束后清理上传的临时文件
     background_tasks.add_task(composition_task_wrapper, task_id, audio_path, subtitle_path)
@@ -94,4 +93,3 @@ async def download_video(task_id: str):
         )
     
     return FileResponse(path=final_video_path, media_type='video/mp4', filename=f"{task_id}_final_video.mp4")
-

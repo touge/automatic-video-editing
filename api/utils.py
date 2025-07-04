@@ -65,16 +65,19 @@ def composition_task_wrapper(task_id: str, audio_path: str, subtitle_path: str |
     if subtitle_path:
         command.extend(["--with-subtitles", subtitle_path])
 
-    print(f"在后台执行合成任务: {' '.join(command)}")
+    # 建议：在生产环境中使用更强大的日志记录工具，例如 Python 的 logging 模块
+    print(f"后台任务启动：开始执行视频合成命令: {' '.join(command)}")
     try:
-        subprocess.run(command, check=True, text=True, encoding='utf-8', capture_output=True)
-        print(f"任务 {task_id} 的后台合成任务已完成。")
+        # 注意：capture_output=True 可能会在长时间运行的脚本中消耗大量内存来缓冲输出。
+        # 如果脚本输出不是必须捕获的，可以移除它以优化性能。
+        result = subprocess.run(command, check=True, text=True, encoding='utf-8', capture_output=True)
+        print(f"后台任务成功: 任务 {task_id} 的视频合成已完成。")
     except subprocess.CalledProcessError as e:
-        print(f"错误: 任务 {task_id} 的后台合成任务失败。\nSTDOUT: {e.stdout}\nSTDERR: {e.stderr}")
+        print(f"后台任务失败: 任务 {task_id} 的视频合成失败。\nSTDOUT: {e.stdout}\nSTDERR: {e.stderr}")
     finally:
-        # 清理上传的临时文件
+        # 使用 finally 块确保无论成功还是失败，上传的临时文件都能被可靠地清理
         if os.path.exists(audio_path):
             os.remove(audio_path)
         if subtitle_path and os.path.exists(subtitle_path):
             os.remove(subtitle_path)
-
+        print(f"后台任务清理: 任务 {task_id} 的临时文件已被清理。")

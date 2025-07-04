@@ -71,7 +71,7 @@
 
 **命令格式**:
 ```bash
-python run_stage_1_analysis.py --with-subtitles /path/to/your/subtitle.srt
+python analysis.py --srt-file /path/to/your/subtitle.srt
 ```
 
 **执行后**:
@@ -89,9 +89,9 @@ python run_stage_1_analysis.py --with-subtitles /path/to/your/subtitle.srt
 
 **命令格式**:
 ```bash
-python run_stage_2_composition.py \
-    --with-task-id <your-task-id> \
-    --with-audio /path/to/your/audio.mp3 \
+python composition.py \
+    --task-id <your-task-id> \
+    --audio /path/to/your/audio.mp3 \
     --with-subtitles /path/to/your/subtitle.srt
 
 python run_stage_2_composition.py --with-task-id <your-task-id> --with-audio /path/to/your/audio.mp3 --with-subtitles /path/to/your/subtitle.srt
@@ -100,9 +100,9 @@ python run_stage_2_composition.py --with-task-id <your-task-id> --with-audio /pa
 **参数说明**:
 - `--with-task-id`: **必需**。填入阶段一生成的任务ID。
 - `--with-audio`: **必需**。指定视频要匹配的音频文件路径。
-- `--with-subtitles`: **可选**。用于烧录字幕。
-  - `--with-subtitles`: 如果不带路径，会自动使用任务中的 `scenes.json` 生成字幕。
-  - `--with-subtitles /path/to/your.srt`: 使用你指定的外部SRT文件进行烧录。
+- `--subtitles`: **可选**。用于烧录字幕。
+  - `--subtitles`: 如果不带路径，会自动使用任务中的 `scenes.json` 生成字幕。
+  - `--subtitles /path/to/your.srt`: 使用你指定的外部SRT文件进行烧录。
   - 如果省略此参数，则最终视频不带字幕。
 
 **执行后**:
