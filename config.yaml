@@ -45,6 +45,7 @@ video:
   max_clip_duration: 8.0
   # 单个视频片段的最小市场（秒）。
   min_clip_duration: 3.0
+
   # 字幕样式配置 (可选)
   subtitles:
     # 包含自定义字体文件 (.ttf, .otf) 的目录的路径。
@@ -88,7 +89,7 @@ asset_search:
 
   # (新增) 两次在线API请求之间的最小间隔时间（秒）。
   # 用于防止因请求过于频繁而被服务商限制。
-  request_delay_seconds: 3
+  request_delay_seconds: 1
 
   # 新增两组补齐关键词
   fallback_en:
