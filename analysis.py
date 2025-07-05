@@ -37,7 +37,7 @@ def main(srt_file_name: str, task_id: str | None = None):
         print_info(f"使用指定的任务ID: {task_id}")
     else:
         task_id = generate_task_id()
-        print_info(f"新任务已创建，ID: {task_id}")
+        print_success(f"新任务已创建，ID: {task_id}")
 
     task_dir = os.path.join("storage", "tasks", task_id)
     os.makedirs(task_dir, exist_ok=True)
@@ -70,7 +70,7 @@ def main(srt_file_name: str, task_id: str | None = None):
             pbar.update(1)
         
         if segments:
-            print_info(f"解析完成，缓存片段到 {os.path.basename(segments_cache_path)}...")
+            print_success(f"解析完成，缓存片段到 {os.path.basename(segments_cache_path)}...")
             with open(segments_cache_path, 'w', encoding='utf-8') as f:
                 json.dump(segments, f, ensure_ascii=False, indent=4)
 
@@ -90,7 +90,7 @@ def main(srt_file_name: str, task_id: str | None = None):
         scenes = splitter.split(segments)
 
         if scenes:
-            print_info(f"成功分割成 {len(scenes)} 个场景。")
+            print_success(f"成功分割成 {len(scenes)} 个场景。")
             print_info(f"缓存原始场景到 {os.path.basename(scenes_raw_cache_path)}...")
             with open(scenes_raw_cache_path, 'w', encoding='utf-8') as f:
                 json.dump(scenes, f, ensure_ascii=False, indent=4)

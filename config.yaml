@@ -1,6 +1,15 @@
 # API Keys & Services
 # -------------------
-# 用于在线搜索视频素材和进行自然语言处理。
+
+# ==============================================================================
+# AI 智能搜索配置 (新增)
+# ==============================================================================
+ai_search:
+  # 您的 AI 搜索服务 API 密钥
+  api_key: "your-super-secret-token"
+  # 您的 AI 搜索服务 API 端点 URL
+  api_url: "http://127.0.0.1:8000/api/videos/text"
+
 # 前往 https://www.pexels.com/api/ 获取你的免费API Key
 pexels:
   api_host: "https://api.pexels.com"
@@ -70,11 +79,26 @@ paths:
 # Asset Search Strategy
 # ---------------------
 asset_search:
-  # 如果初始关键词搜索素材失败，使用LLM生成新关键词并重试的最大次数。
-  max_keyword_retries: 2
-  # 在线搜索时，为每个关键词请求的视频数量。
-  # 增加此值可以提高找到未使用素材的几率，但会增加API调用次数。
+  # 每次在线搜索时，向Pexels或Pixabay请求的素材数量。
+  # 增加此值可以提高找到合适素材的几率，但会消耗更多API配额。
   online_search_count: 15
+
+  # 在关键词用尽后，调用Ollama生成新关键词的最大重试次数。
+  max_keyword_retries: 2
+
+  # (新增) 两次在线API请求之间的最小间隔时间（秒）。
+  # 用于防止因请求过于频繁而被服务商限制。
+  request_delay_seconds: 3
+
+  # 新增两组补齐关键词
+  fallback_en:
+    - healthy lifestyle
+    - wellness routine
+    - exercise motion
+  fallback_cn:
+    - 健康生活方式
+    - 养生日常
+    - 运动镜头
 
 # Scene Detection Parameters
 # --------------------------
@@ -103,22 +127,65 @@ prompts:
     ---
 
   # 用于为场景生成关键词 (Stage 1)
+  # keyword_generator: |
+  #   You are a creative director and shot-list creator for video production.
+  #   Based on the scene description, your task is to:
+  #   1.  Add appropriate punctuation to the original text to make it a natural, readable sentence.
+  #   2.  Create a list of **up to 3** English keywords, suitable for searching stock video footage. These should be concrete, visual, and action-oriented. **The keywords must be sorted by relevance, with the most important one first.**
+  #   3.  Create a list of **up to 3** Chinese keywords that describe a sequence of shots, like a storyboard. **The keywords must be sorted by relevance, with the most important one first.**
+
+  #   You MUST return your response as a single, valid JSON object. Do not include any other text or explanations.
+
+  #   **Example:**
+  #   Scene Description: "一个24岁的中国女孩远赴意大利与父母团聚在异国他乡勤劳打拼"
+  #   Your JSON Response:
+  #   {{
+  #     "punctuated_text": "一个24岁的中国女孩，远赴意大利与父母团聚，在异国他乡勤劳打拼。",
+  #     "keywords_en": ["woman on airplane", "family hug at airport", "working hard abroad"],
+  #     "keywords_cn": ["一个女人坐飞机", "父母机场接机", "在异国努力工作"]
+  #   }}
+
+  #   Now, process the following scene.
+
+  #   Scene Description: "{scene_text}"
+
+  #   Your JSON Response:
   keyword_generator: |
-    You are a creative director and shot-list creator for video production.
-    Based on the scene description, your task is to:
-    1.  Add appropriate punctuation to the original text to make it a natural, readable sentence.
-    2.  Create a list of **up to 3** English keywords, suitable for searching stock video footage. These should be concrete, visual, and action-oriented. **The keywords must be sorted by relevance, with the most important one first.**
-    3.  Create a list of **up to 3** Chinese keywords that describe a sequence of shots, like a storyboard. **The keywords must be sorted by relevance, with the most important one first.**
+    You are a creative director and shot-list creator for health & wellness video production.
+    Use the following weighted keyword categories as a guide when generating stock-footage search terms:
+      • 20% 症状与病因 (symptom & cause)
+      • 20% 食材与营养 (ingredient & nutrition)
+      • 15% 运动与体式 (exercise & posture)
+      • 10% 日常习惯 (daily habits)
+      • 10% 心理调节 (mental regulation)
+      • 10% 治疗与预防 (treatment & prevention)
+      • 5%  数据与案例 (data & case examples)
+      • 10% 专家建议 (expert advice)
+
+    Based on the scene description, your task is:
+    1. Add appropriate punctuation to the original text to make it a natural, readable sentence.
+
+    2. Create a list of up to **6** English keywords for stock-footage searches.
+      - Keywords must be concrete, visual, action-oriented.
+      - Keywords must be mutually distinct (no same-core-concept or simple synonym).
+      - Sort by relevance (highest first).
+      - From these 6, select the top **3** unique keywords (highest relevance first).
+
+    3. Create a list of up to **6** Chinese keywords that describe a sequence of shots (storyboard style).
+      - Keywords must be concrete, visual, action-oriented.
+      - Keywords must be mutually distinct (no same-core-concept or simple synonym).
+      - Sort by relevance (highest first).
+      - From these 6, select the top **3** unique keywords (highest relevance first).
 
     You MUST return your response as a single, valid JSON object. Do not include any other text or explanations.
 
-    **Example:**
-    Scene Description: "一个24岁的中国女孩远赴意大利与父母团聚在异国他乡勤劳打拼"
+    Example:
+    Scene Description: "一位45岁的上班族女性每天坚持晨跑5公里，以提升体能和减压"
     Your JSON Response:
     {{
-      "punctuated_text": "一个24岁的中国女孩，远赴意大利与父母团聚，在异国他乡勤劳打拼。",
-      "keywords_en": ["woman on airplane", "family hug at airport", "working hard abroad"],
-      "keywords_cn": ["一个女人坐飞机", "父母机场接机", "在异国努力工作"]
+      "punctuated_text": "一位45岁的上班族女性，每天坚持晨跑5公里，以提升体能和减压。",
+      "keywords_en": ["morning jogging", "urban runner", "stress relief exercise"],
+      "keywords_cn": ["上班族女性晨跑", "城市慢跑", "减压运动"]
     }}
 
     Now, process the following scene.
@@ -126,6 +193,7 @@ prompts:
     Scene Description: "{scene_text}"
 
     Your JSON Response:
+
 
   # 用于在素材搜索失败后生成新的关键词 (Stage 2 retry)
   asset_keyword_generator:
