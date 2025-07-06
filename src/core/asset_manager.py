@@ -18,7 +18,6 @@ from src.color_utils import (
 # --- 新增导入 ---
 from src.providers.pexels import PexelsProvider
 from src.providers.pixabay import PixabayProvider
-from src.providers.local import LocalProvider
 from src.providers.ai_search import AiSearchProvider
 from src.providers.base import BaseVideoProvider
 
@@ -77,10 +76,6 @@ class AssetManager:
             print_success("AI 智能搜索提供者已启用。")
             self.video_providers.append(AiSearchProvider(self.config))
 
-        # 2. 添加本地提供者
-        if self.local_assets_path and os.path.isdir(self.local_assets_path):
-            print_success("本地素材提供者已启用。")
-            self.video_providers.append(LocalProvider(self.config))
 
         # 3. 添加其他在线提供者
         if config.get('pexels', {}).get('api_key') and "YOUR_PEXELS_API_KEY_HERE" not in config.get('pexels', {}).get('api_key'):
@@ -155,82 +150,82 @@ class AssetManager:
     #         log.warning(f"调用Ollama生成关键词时出错: {e}", exc_info=True)
     #         return []
     
-def _generate_new_keywords(
-    self,
-    scene_text: str,
-    existing_keywords: Set[str]
-) -> List[str]:
-    """
-    使用 Ollama 生成新的、不重复的英文关键词，并做语义去重+补齐到 3 条。
-    existing_keywords: 已尝试过的关键词集合（小写）。
-    返回长度恒为 3 的关键词列表（可能包含 fallback）。
-    """
-    print_info("  -> 调用 Ollama 生成新的关键词…")
-    # 1. 构造 Prompt
-    user_prompt = self.asset_user_prompt_template.format(
-        existing_keywords=', '.join(existing_keywords),
-        scene_text=scene_text
-    )
+    def _generate_new_keywords(
+        self,
+        scene_text: str,
+        existing_keywords: Set[str]
+    ) -> List[str]:
+        """
+        使用 Ollama 生成新的、不重复的英文关键词，并做语义去重+补齐到 3 条。
+        existing_keywords: 已尝试过的关键词集合（小写）。
+        返回长度恒为 3 的关键词列表（可能包含 fallback）。
+        """
+        print_info("  -> 调用 Ollama 生成新的关键词…")
+        # 1. 构造 Prompt
+        user_prompt = self.asset_user_prompt_template.format(
+            existing_keywords=', '.join(existing_keywords),
+            scene_text=scene_text
+        )
+        
+        try:
+            # 2. 调用 Ollama Chat 接口
+            response = self.ollama_client.chat(
+                model=self.ollama_config.get('model'),
+                messages=[
+                    {'role': 'system', 'content': self.asset_system_prompt},
+                    {'role': 'user',   'content': user_prompt}
+                ],
+                options={'temperature': 0.7}
+            )
+            content = response['message']['content'].strip()
     
-    try:
-        # 2. 调用 Ollama Chat 接口
-        response = self.ollama_client.chat(
-            model=self.ollama_config.get('model'),
-            messages=[
-                {'role': 'system', 'content': self.asset_system_prompt},
-                {'role': 'user',   'content': user_prompt}
-            ],
-            options={'temperature': 0.7}
-        )
-        content = response['message']['content'].strip()
-
-        # 3. 去掉模型可能输出的 <think>…</think> 块
-        content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL)
-
-        # 4. 清洗并拆分成候选关键词
-        cleaned = content.replace('"', '').replace("'", "").strip()
-        potential_keywords = [kw.strip() for kw in cleaned.split(',') if kw.strip()]
-
-        # 5. 简单过滤：不超过 5 个单词
-        validated = []
-        for kw in potential_keywords:
-            if len(kw.split()) <= 5:
-                validated.append(kw)
-            else:
-                log.warning(f"已过滤掉过长的潜在关键词: '{kw}'")
-
-        # 6. 排除已尝试过的重复关键词
-        final_new = [kw for kw in validated if kw.lower() not in existing_keywords]
-
-        # 7. 语义去重 + 补齐到 3 条
-        enriched = dedupe_and_fill(
-            final_new,
-            target=3,
-            threshold=0.6,
-            fallback=self.fallback_en
-        )
-
-        print_info(f"  -> Ollama 生成的新关键词（去重+补齐后）: {enriched}")
-        return enriched
-
-    except Exception as e:
-        log.warning(f"调用 Ollama 生成关键词时出错: {e}", exc_info=True)
-        # 失败时直接返回 fallback（去重）
-        return dedupe_and_fill(
-            [],
-            target=3,
-            fallback=self.fallback_en
-        )
-
-
+            # 3. 去掉模型可能输出的 <think>…</think> 块
+            content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL)
+    
+            # 4. 清洗并拆分成候选关键词
+            cleaned = content.replace('"', '').replace("'", "").strip()
+            potential_keywords = [kw.strip() for kw in cleaned.split(',') if kw.strip()]
+    
+            # 5. 简单过滤：不超过 5 个单词
+            validated = []
+            for kw in potential_keywords:
+                if len(kw.split()) <= 5:
+                    validated.append(kw)
+                else:
+                    log.warning(f"已过滤掉过长的潜在关键词: '{kw}'")
+    
+            # 6. 排除已尝试过的重复关键词
+            final_new = [kw for kw in validated if kw.lower() not in existing_keywords]
+    
+            # 7. 语义去重 + 补齐到 3 条
+            enriched = dedupe_and_fill(
+                final_new,
+                target=3,
+                threshold=0.6,
+                fallback=self.fallback_en
+            )
+    
+            print_info(f"  -> Ollama 生成的新关键词（去重+补齐后）: {enriched}")
+            return enriched
+    
+        except Exception as e:
+            log.warning(f"调用 Ollama 生成关键词时出错: {e}", exc_info=True)
+            # 失败时直接返回 fallback（去重）
+            return dedupe_and_fill(
+                [],
+                target=3,
+                fallback=self.fallback_en
+            )
+    
+    
     def find_assets_for_scene(self, scene: dict, num_assets: int) -> list[str]:
         """
         1) 对 scene['keywords_en'] 先去重补齐到 3 条，得到 initial_keywords
         2) 用 initial_keywords 搜素材；若失败，生成新关键词（_generate_new_keywords 已经做过去重补齐）
         3) 最终返回找到的素材路径
         """
-
-        # —— 第一步：处理初始关键词 —— 
+    
+        # —— 第一步：处理初始关键词 ——
         raw_initial = scene.get("keywords_en", [])
         initial_keywords = dedupe_and_fill(
             raw_initial,
@@ -240,22 +235,22 @@ def _generate_new_keywords(
         # fallback_en 用来保证即便 raw_initial 少于 3 条，也能补齐
         # fallback_en = ["healthy lifestyle", "wellness routine", "exercise motion"]
         # initial_keywords = dedupe_and_fill(raw_initial, target=3, fallback=fallback_en)
-
+    
         # 把首轮的关键词放入 tried，用于后面避免重复
         tried = set(kw.lower() for kw in initial_keywords)
-
+    
         current_keywords = initial_keywords
-
-        # —— 第二步：尝试多轮搜索 —— 
+    
+        # —— 第二步：尝试多轮搜索 ——
         max_retries = self.asset_search_config.get("max_keyword_retries", 2)
         for round_idx in range(max_retries + 1):
             print_info(f"[轮次 {round_idx+1}] 用关键词 {current_keywords} 搜素材")
             found = self._find_assets_with_keywords(current_keywords, num_assets)
-
+    
             if len(found) >= num_assets:
                 print_success(f"找到了 {len(found)} 个素材，返回！")
                 return found
-
+    
             # 如果本轮不够，且还没到最大重试次数，就生成新关键词重试
             if round_idx < max_retries:
                 new_kw = self._generate_new_keywords(scene['text'], tried)
@@ -267,10 +262,10 @@ def _generate_new_keywords(
                 current_keywords = new_kw
             else:
                 print_warning("已到重试上限，退出。")
-
+    
         # 所有轮次都没凑够，返回已有素材（可能为空）
         return found
-    # def find_assets_for_scene(self, scene: dict, num_assets: int) -> List[str]:        
+    # def find_assets_for_scene(self, scene: dict, num_assets: int) -> List[str]:
     #     """
     #     为单个场景查找指定数量的素材。
     #     如果初始关键词失败，会使用Ollama生成新关键词并重试。
@@ -279,15 +274,15 @@ def _generate_new_keywords(
     #     if not initial_keywords:
     #         log.warning("场景没有关键词，无法搜索素材。")
     #         return []
-
+    
     #     max_retries = self.asset_search_config.get('max_keyword_retries', 2)
     #     tried_keywords: Set[str] = set(kw.lower() for kw in initial_keywords)
     #     current_keywords = initial_keywords
-
+    
     #     for i in range(max_retries + 1):  # +1 for the initial attempt
     #         print_info(f"[第 {i+1}/{max_retries+1} 轮] 为场景 \"{scene['text'][:20]}...\" 搜索 {num_assets} 个素材")
     #         print_info(f"  -> 使用关键词: {current_keywords}")
-
+    
     #         found_assets = self._find_assets_with_keywords(current_keywords, num_assets)
             
     #         if len(found_assets) >= num_assets:
@@ -295,7 +290,7 @@ def _generate_new_keywords(
     #             return found_assets
             
     #         log.warning(f"查找失败，只找到 {len(found_assets)}/{num_assets} 个素材。")
-
+    
     #         if i < max_retries:
     #             print_info("准备生成新关键词并重试...")
     #             new_keywords = self._generate_new_keywords(scene['text'], tried_keywords)
@@ -307,8 +302,8 @@ def _generate_new_keywords(
     #             tried_keywords.update(kw.lower() for kw in new_keywords)
     #         else:
     #             log.warning("已达到最大重试次数，停止搜索。")
-
-    #     return []  
+    
+    #     return []
     
     def _find_assets_with_keywords(self, keywords: List[str], num_to_find: int) -> List[str]:
         """
@@ -317,25 +312,25 @@ def _generate_new_keywords(
         """
         if not keywords:
             return []
-
+    
         found_paths: List[str] = []
         used_source_ids: Set[str] = set()  # 跟踪在线素材的ID，避免重复下载
         used_local_paths: Set[str] = set() # 跟踪本地素材的路径，避免重复使用
-
+    
         for i in range(num_to_find):
             # 按顺序循环使用关键词
             keyword_for_this_shot = [keywords[i % len(keywords)]]
             print_info(f"    - 正在为片段 {i+1}/{num_to_find} 搜索，关键词: '{keyword_for_this_shot[0]}'")
             
             asset_path = self._find_one_asset(keyword_for_this_shot, used_source_ids, used_local_paths)
-
+    
             if asset_path:
                 found_paths.append(asset_path)
             else:
                 log.warning(f"      -> 未能为关键词 '{keyword_for_this_shot[0]}' 找到任何可用素材。")
         
         return found_paths
-
+    
     def _find_one_asset(self, keyword: List[str], used_source_ids: Set[str], used_local_paths: Set[str]) -> str | None:
         """
         为单个关键词查找一个素材，优先本地，其次在线。
@@ -348,7 +343,7 @@ def _generate_new_keywords(
                 print_info(f"      -> 在本地数据库找到: {os.path.basename(path)}")
                 used_local_paths.add(path)
                 return path
-
+    
         # 2. 如果本地没有，则在线搜索
         print_info(f"      -> 本地未找到，转为在线搜索...")
         video_info = self._search_online_for_one(keyword, used_source_ids)
@@ -361,12 +356,12 @@ def _generate_new_keywords(
                 return path
         
         return None
-
+    
     def _search_online_for_one(self, keywords: List[str], used_source_ids: Set[str]) -> Dict[str, Any] | None:
         """使用所有提供者在线搜索一个未被使用过的素材。"""
         if not self.video_providers:
             return None
-
+    
         # 移除 random.shuffle，以确保按照提供者列表的顺序（即优先级）进行搜索
         # random.shuffle(self.video_providers)
  
@@ -374,27 +369,27 @@ def _generate_new_keywords(
             # --- 新增：API请求延迟逻辑 ---
             # 对非本地提供者（即需要API调用的）应用延迟
             # LocalProvider 速度快且不访问外部API，因此跳过它。
-            if not isinstance(provider, LocalProvider):
-                if self.last_online_search_time:
-                    elapsed = time.time() - self.last_online_search_time
-                    if elapsed < self.request_delay:
-                        sleep_duration = self.request_delay - elapsed
-                        print_info(f"      -> API请求间隔为 {self.request_delay}s，等待 {sleep_duration:.2f}s...")
-                        time.sleep(sleep_duration)
-                
-                # 记录本次API调用的时间，以便计算下一次的间隔
-                self.last_online_search_time = time.time()
-
+            # 对所有提供者应用延迟，因为它们都通过网络API调用
+            if self.last_online_search_time:
+                elapsed = time.time() - self.last_online_search_time
+                if elapsed < self.request_delay:
+                    sleep_duration = self.request_delay - elapsed
+                    print_info(f"      -> API请求间隔为 {self.request_delay}s，等待 {sleep_duration:.2f}s...")
+                    time.sleep(sleep_duration)
+            
+            # 记录本次API调用的时间，以便计算下一次的间隔
+            self.last_online_search_time = time.time()
+    
             provider_name = provider.__class__.__name__.replace("Provider", "")
             print_info(f"        -> 尝试通过 {provider_name} 搜索...")
             # 从配置中读取要请求的视频数量，默认为10
             search_count = self.asset_search_config.get('online_search_count', 10)
             video_results = provider.search(keywords, count=search_count)
-
+    
             if not video_results:
                 log.warning(f"        -> {provider_name} 未找到关于 '{' '.join(keywords)}' 的视频。")
                 continue
-
+    
             # 找到第一个尚未在本场景中使用的视频
             for video_info in video_results:
                 if video_info['id'] not in used_source_ids:
@@ -402,23 +397,23 @@ def _generate_new_keywords(
                     return video_info
             
             log.warning(f"        -> {provider_name} 找到的素材都已被使用过。")
-
+    
         return None # 所有提供者都尝试过，未找到新素材
-
+    
     def _download_and_register(self, video_info: Dict[str, Any], keywords: List[str]) -> str | None:
         """下载单个视频，注册到数据库，并返回本地路径。如果已存在则直接返回路径。"""
         source = video_info['source']
         source_id = video_info['id']
         download_url = video_info['download_url']
-
+    
         # 检查数据库中是否已存在此视频
         existing_path = self.db_manager.find_asset_by_source_id(source, str(source_id))
         if existing_path:
             print_info(f"      -> 在本地缓存中找到素材 (来自数据库): {os.path.basename(existing_path)}")
             return existing_path
-
+    
         # 如果源是 'local' 或 'ai_search'，则文件已在本地，无需下载，只需注册
-        if source in ['local', 'ai_search']:
+        if source == 'ai_search':
             local_file_path = download_url # 对于本地提供者，download_url就是文件路径
             if os.path.exists(local_file_path):
                 # 将其添加到数据库以供未来快速查找
@@ -428,7 +423,7 @@ def _generate_new_keywords(
             else:
                 log.warning(f"本地提供者报告了一个不存在的文件: {local_file_path}")
                 return None
-
+    
         # 如果不在缓存中，则下载
         # 创建日期子目录
         today_str = datetime.date.today().strftime("%Y-%m-%d")
@@ -437,12 +432,12 @@ def _generate_new_keywords(
         
         filename = f"{source_id}.mp4"
         local_file_path = os.path.join(daily_dir, filename)
-
+    
         try:
             print_info(f"      -> 正在下载新素材: {filename} from {source}")
             video_res = requests.get(download_url, timeout=60, stream=True)
             video_res.raise_for_status()
-
+    
             # 为下载添加tqdm进度条
             total_size = int(video_res.headers.get('content-length', 0))
             from tqdm import tqdm
