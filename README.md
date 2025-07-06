@@ -1,167 +1,134 @@
-# 智能视频剪辑工具 (Auto-Cut-Tool)
+# 自动化视频编辑工具
 
-这是一个强大的自动化视频剪辑工具，它能将一个简单的字幕文件（SRT）和一个音频文件，智能地转化为一个配有高质量素材、节奏感强的视频。
+这是一个基于 Python 的自动化视频编辑工具，旨在将字幕（SRT 文件）和配音（音频文件）快速转换为一个由相关视频素材拼接而成的成品视频。项目利用大语言模型（LLM）进行语义分析，自动化处理繁琐的素材搜集和剪辑工作。
 
-该工具利用大语言模型（LLM）进行语义分析，自动完成场景分割、关键词提取、素材搜索和视频合成，极大地简化了视频创作流程。
+## 核心功能
 
-## ✨ 核心功能
-
-- **智能场景分割**: 使用Ollama本地大模型，根据字幕内容的语义逻辑，自动将文稿分割成连贯的场景。
-- **多语言关键词提取**: 利用Google Gemini API，为每个场景提取中英文双语关键词，确保素材搜索的精准性。
-- **自动化素材搜集**:
-  - **本地素材库**: 优先从本地 `assets/local` 目录搜索匹配的素材。
-  - **在线下载与缓存**: 当本地素材不足时，自动从Pexels.com搜索、下载高质量视频素材，并将其缓存到本地（按日期分目录），以便未来复用。
-  - **数据库索引**: 所有本地素材（包括下载的）都会被记录在SQLite数据库 (`storage/asset_library.db`) 中，实现秒级关键词检索，告别文件系统扫描的性能瓶颈。
-- **动态素材切分**: 对于时长较长的场景，工具会自动计算并匹配多个视频片段，使视觉效果更丰富、不单调。
+- **智能场景分割**: 利用 LLM (通过 Ollama) 分析字幕内容，自动将文本分割成具有逻辑关联的场景。
+- **关键词自动生成**: 为每个场景提取核心关键词，用于后续的素材搜索。
+- **自动化素材搜集**: 根据关键词从多个素材源（如 Pexels, Pixabay，以及本地文件）搜索和下载高质量的视频片段。
 - **灵活的视频合成**:
-  - 使用 `ffmpeg` 进行专业的视频合成。
-  - 支持将音频与视频片段精确对齐。
-  - 支持多种字幕烧录方式：不加字幕、自动生成字幕、或使用外部指定的SRT文件。
+    - 支持自定义视频分辨率、帧率。
+    - 智能切分长场景，匹配多个短镜头，增加视觉丰富性。
+    - 优先使用硬件加速（NVIDIA NVENC, Intel QSV, Apple VideoToolbox）来提升视频处理速度。
+    - 健壮的 `ffmpeg` 调用，包含多种失败回退机制。
+- **字幕烧录**: 可选择自动生成字幕或使用外部 SRT 文件烧录到最终视频中。
+- **两阶段工作流**:
+    1.  **分析阶段**: 生成 `scenes.json` 文件，允许用户在合成前审查和修改场景与关键词。
+    2.  **合成阶段**: 根据确认的场景数据和音频文件，全自动完成素材下载和视频合成。
+- **API 服务**: 提供一套完整的 FastAPI 接口，可用于程序化调用、集成或构建前端应用。
 
-## ⚙️ 环境准备
+## 技术栈
 
-1.  **Python 环境**: 推荐使用 Python 3.10 或更高版本。
-2.  **FFmpeg**: 确保你的系统中已安装 `ffmpeg`。
-    - **macOS (使用 Homebrew)**: `brew install ffmpeg`
-    - **Windows**: 从 官网 下载并将其可执行文件路径添加到系统环境变量中。
-3.  **Ollama (可选，推荐)**: 如果你想使用本地大模型进行场景分割，请先安装并运行 Ollama，并拉取所需模型（如 `ollama pull qwen2:7b`）。
+- **后端**: Python
+- **API 框架**: FastAPI
+- **视频处理**: FFmpeg
+- **LLM 服务**: Ollama (支持本地运行各种大语言模型)
+- **主要 Python 库**: `ffmpeg-python`, `requests`, `tqdm`, `pyyaml`
 
-## 🚀 安装与配置
+## 工作流程
 
-1.  **克隆项目**
+项目的工作流程分为两个主要阶段：
+
+**阶段一：分析与场景生成**
+![阶段一流程图](https://dummyimage.com/800x200/d3d3d3/000000.png&text=Workflow+Phase+1)
+
+1.  **输入**: 提供一个 `.srt` 字幕文件。
+2.  **处理**:
+    -   运行 `analysis.py` 脚本。
+    -   脚本解析 SRT 文件，并调用 Ollama LLM 进行语义分析。
+    -   LLM 将字幕分割成场景，并为每个场景生成关键词。
+3.  **输出**: 在 `storage/tasks/{task_id}/` 目录下生成一个 `scenes.json` 文件。
+4.  **人工审核**: 用户可以打开 `scenes.json` 文件，检查、修改或优化场景文本和关键词，以确保后续素材的准确性。
+
+**阶段二：素材搜集与视频合成**
+![阶段二流程图](https://dummyimage.com/800x200/d3d3d3/000000.png&text=Workflow+Phase+2)
+
+1.  **输入**:
+    -   阶段一生成的 `task_id`。
+    -   一个音频文件 (如 `.mp3`, `.wav`)。
+2.  **处理**:
+    -   运行 `composition.py` 脚本。
+    -   脚本读取 `scenes.json` 文件。
+    -   根据关键词，`AssetManager` 从配置的源下载视频素材。
+    -   `VideoComposer` 将所有素材片段进行裁剪、标准化，然后与音频拼接，并根据需要烧录字幕。
+3.  **输出**: 在 `storage/tasks/{task_id}/` 目录下生成最终的视频文件 `final_video.mp4`。
+
+## 如何使用
+
+### 1. 环境准备
+
+- **安装 FFmpeg**: 确保您的系统中已安装 FFmpeg，并已将其添加到系统环境变量中。
+- **安装 Python 依赖**:
+  ```bash
+  pip install -r requirements.txt
+  ```
+- **设置 Ollama**:
+  -   请参考 [Ollama 官网](https://ollama.com/) 的说明安装并运行 Ollama 服务。
+  -   拉取一个你希望使用的模型，例如 `qwen2:7b-instruct`：
     ```bash
-    git clone <your-repo-url>
-    cd auto-cut-tool
+    ollama pull qwen2:7b-instruct
     ```
 
-2.  **创建并激活虚拟环境 (推荐)**
-    为了避免与系统Python环境冲突，强烈建议使用虚拟环境。
-    ```bash
-    # 创建一个名为 .venv 的虚拟环境
-    python3 -m venv .venv
-    
-    # 激活虚拟环境 (macOS/Linux)
-    source .venv/bin/activate
-    ```
+### 2. 配置文件
 
-3.  **安装依赖**
-    项目的所有依赖都已在 `requirements.txt` 中列出。运行以下命令进行安装：
-    ```bash
-    pip install -r requirements.txt
-    ```
+-   将 `config.yaml.template` 复制为 `config.yaml`。
+-   打开 `config.yaml` 并根据您的需求进行配置：
+    -   **`llm`**: 设置 Ollama 服务的地址和要使用的模型名称。
+    -   **`asset_providers`**: 配置素材源的 API Keys (例如 Pexels)。
+    -   **`video`**: 设置视频的默认分辨率、帧率、字幕样式等。
 
-4.  **创建配置文件**
-    项目包含一个配置模板 `config.example.yaml`。请将它复制一份并重命名为 `config.yaml`：
-    ```bash
-    cp config.example.yaml config.yaml
-    ```
-    **重要**: `config.yaml` 文件已被添加到 `.gitignore` 中，不会被提交到版本库，以保护您的密钥安全。
+### 3. 运行脚本
 
-5.  **编辑配置文件**
-    打开你刚刚创建的 `config.yaml` 文件，填入你的API Keys，并根据需要配置Ollama和API服务密钥。
-    ```yaml
-    # 前往 https://www.pexels.com/api/ 获取你的免费API Key
-    pexels:
-      api_key: "YOUR_PEXELS_API_KEY_HERE"
-    
-    # 前往 https://aistudio.google.com/app/apikey 获取你的免费API Key
-    gemini:
-      api_key: "YOUR_GEMINI_API_KEY_HERE"
-    
-    # Ollama 本地大模型配置
-    ollama:
-      model: "qwen2:7b" # 或者 "llama3" 等你已拉取的模型
-      host: "http://localhost:11434" # Ollama服务地址
+**阶段一: 分析字幕**
 
-    # API服务配置
-    api_server:
-      secret_key: "CHANGE_THIS_TO_A_LONG_RANDOM_SECRET_KEY"
-      
-    # ...
-    ```
-
-## 🎬 使用流程
-
-整个工作流分为两个阶段，由两个独立的脚本执行。
-
-### **阶段一：分析字幕，生成场景草稿**
-
-这个阶段会读取你的SRT字幕文件，进行场景分割和关键词提取，并生成一个可供你审核和修改的 `scenes.json` 文件。
-
-**命令格式**:
 ```bash
-python analysis.py --srt-file /path/to/your/subtitle.srt
+python analysis.py -s "path/to/your/subtitle.srt"
 ```
 
-**执行后**:
-- 脚本会输出一个唯一的 **任务ID (Task ID)**，例如 `43c03346-ea44-479f-9f6a-78a0cbcff477`。**请务必记下这个ID**。
-- 同时会生成一个任务目录 `storage/tasks/<your-task-id>/`，其中包含 `scenes.json` 文件。
+执行后，脚本会输出一个 `task_id`。请记下这个 ID。然后，您可以去 `storage/tasks/{task_id}/scenes.json` 检查并修改场景数据。
 
-**手动步骤**:
-打开 `storage/tasks/<your-task-id>/scenes.json` 文件。你可以检查、修改或删除每个场景的 `keywords` 和 `keywords_en`，以确保后续素材搜索的准确性。
+**阶段二: 合成视频**
 
----
-
-### **阶段二：合成视频**
-
-在你对 `scenes.json` 感到满意后，运行此阶段的脚本来完成视频的最终合成。
-
-**命令格式**:
 ```bash
-python composition.py \
-    --task-id <your-task-id> \
-    --audio /path/to/your/audio.mp3 \
-    --with-subtitles /path/to/your/subtitle.srt
-
-python run_stage_2_composition.py --with-task-id <your-task-id> --with-audio /path/to/your/audio.mp3 --with-subtitles /path/to/your/subtitle.srt
+python composition.py -id "your-task-id" -a "path/to/your/audio.mp3" -s
 ```
 
-**参数说明**:
-- `--with-task-id`: **必需**。填入阶段一生成的任务ID。
-- `--with-audio`: **必需**。指定视频要匹配的音频文件路径。
-- `--subtitles`: **可选**。用于烧录字幕。
-  - `--subtitles`: 如果不带路径，会自动使用任务中的 `scenes.json` 生成字幕。
-  - `--subtitles /path/to/your.srt`: 使用你指定的外部SRT文件进行烧录。
-  - 如果省略此参数，则最终视频不带字幕。
+-   `-id`: 替换为阶段一生成的 `task_id`。
+-   `-a`: 替换为您的音频文件路径。
+-   `-s` (或 `--subtitles`): 一个可选参数，用于烧录字幕。
+    -   只使用 `-s`：程序会根据 `scenes.json` 的内容自动生成字幕。
+    -   使用 `-s path/to/your/subtitle.srt`：程序会使用您指定的外部字幕文件。
+    -   不使用此参数：最终视频将不包含字幕。
 
-**执行后**:
-- 工具会自动搜索、下载、缓存素材，并进行视频剪辑与合成。
-- 最终的视频文件会保存在 `storage/tasks/<your-task-id>/final_video.mp4`。
+### 4. 运行 API 服务
 
-## 📁 目录结构
+如果您希望通过 API 的方式来使用，可以运行 `api/main.py`：
 
-- `assets/local/`: 本地共享素材库。所有下载的视频会按日期（如 `2023-10-27`）存放在这里。
-- `storage/asset_library.db`: 本地素材的SQLite索引数据库，用于快速搜索。
-- `storage/tasks/`: 存放所有任务的目录。每个子目录代表一次运行。
-- `config.yaml`: 全局配置文件。
-
----
-
-## 🤖 API 服务 (微服务集成)
-
-除了命令行，本工具还提供了一套完整的RESTful API，便于集成到其他微服务或自动化流程中。该API服务被设计为独立模块，不会影响原有的命令行工具。
-
-### **启动 API 服务**
-
-在项目 **根目录** 运行以下命令：
 ```bash
-uvicorn api.main:app --host 0.0.0.0 --port 8000
+uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
 ```
-服务启动后，你可以在浏览器中访问 `http://127.0.0.1:8000/docs` 查看交互式的API文档 (Swagger UI)。
 
-### **API 认证**
+启动后，您可以访问 `http://localhost:8000/docs` 查看 Swagger UI 和 API 文档。
 
-所有API请求都需要通过API密钥进行认证。
-1.  在 `config.yaml` 文件中设置你的 `secret_key`。
-2.  在每个请求的Header中加入 `X-API-Key: YOUR_SUPER_SECRET_API_KEY`。
+## 目录结构
 
-### **API 端点**
-
-- **`POST /v1/analysis`**: 启动阶段一分析任务。
-  - **Body**: `multipart/form-data`，包含一个名为 `subtitles` 的SRT文件。
-  - **返回**: `{"task_id": "...", "message": "..."}`
-- **`POST /v1/composition`**: 启动阶段二合成任务（后台执行）。
-  - **Body**: `multipart/form-data`，包含 `task_id` (字符串), `audio` (音频文件), 和可选的 `subtitles` (SRT文件)。
-  - **返回**: 立即返回确认信息，任务在后台运行。
-- **`GET /v1/status/{task_id}`**: 查询指定任务的状态（`COMPLETED` 或 `PENDING_OR_IN_PROGRESS`）。
-- **`GET /v1/download/{task_id}`**: 下载合成完成的视频文件。
+```
+.
+├── api/                # FastAPI 相关代码
+│   ├── routers/        # API 路由模块
+│   └── main.py         # API 入口文件
+├── assets/             # 存放字体等静态资源
+├── input/              # 存放输入的 srt 和 wav 文件示例
+├── src/                # 项目核心逻辑
+│   ├── core/           # 核心组件 (场景分割, 素材管理, 视频合成)
+│   ├── providers/      # 素材源提供者 (Pexels, 本地等)
+│   └── ...             # 其他工具和模块
+├── storage/            # 存储任务数据和输出文件
+│   ├── tasks/          # 每个子目录代表一个任务
+│   └── uploads/        # API 上传的文件
+├── analysis.py         # 阶段一：分析与场景生成脚本
+├── composition.py      # 阶段二：素材搜集与视频合成脚本
+├── config.yaml         # 配置文件 (需从 .template 创建)
+├── requirements.txt    # Python 依赖列表
+└── README.md           # 本文档
