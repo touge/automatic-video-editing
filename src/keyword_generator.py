@@ -1,6 +1,6 @@
-import ollama
 import json
 from src.logger import log
+from src.providers.llm import LlmManager
 
 def _parse_llm_json_response(raw_text: str) -> dict | None:
     """
@@ -24,11 +24,13 @@ def _parse_llm_json_response(raw_text: str) -> dict | None:
 
 class KeywordGenerator:
     def __init__(self, config: dict):
-        self.ollama_config = config.get('ollama', {})
-        if not self.ollama_config.get('model'):
-            raise ValueError("Ollama未在config.yaml中配置。")
+        llm_manager = LlmManager(config)
+        self.llm_provider = llm_manager.default
+        if not self.llm_provider:
+            raise ValueError("No default LLM provider is available for KeywordGenerator. Please check your config.yaml.")
         
-        self.client = ollama.Client(host=self.ollama_config.get('host', 'http://localhost:11434'))
+        log.info(f"KeywordGenerator is using LLM provider: '{self.llm_provider.name}'")
+        
         self.prompt_template = config.get('prompts', {}).get('keyword_generator')
         if not self.prompt_template:
             raise ValueError("Keyword generator prompt 'prompts.keyword_generator' not found in config.yaml")
@@ -37,8 +39,8 @@ class KeywordGenerator:
         for scene in scenes:
             try:
                 prompt = self.prompt_template.format(scene_text=scene["text"])
-                response = self.client.generate(model=self.ollama_config['model'], prompt=prompt)
-                parsed_data = _parse_llm_json_response(response['response'])
+                response_text = self.llm_provider.generate(prompt)
+                parsed_data = _parse_llm_json_response(response_text)
                 if parsed_data:
                     scene.pop('keywords', None) # 移除旧的、空的keywords字段
                     scene['text'] = parsed_data.get('punctuated_text', scene['text'])
@@ -48,7 +50,7 @@ class KeywordGenerator:
                     scene['keywords_en'] = []
                     scene['keywords_cn'] = []
             except Exception as e:
-                log.error(f"调用 Ollama API 失败，场景: \"{scene['text'][:30]}...\"。", exc_info=True)
+                log.error(f"调用 LLM provider '{self.llm_provider.name}' 失败，场景: \"{scene['text'][:30]}...\"。", exc_info=True)
                 scene['keywords_en'] = []
                 scene['keywords_cn'] = []
         return scenes

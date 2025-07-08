@@ -2,9 +2,9 @@ import os
 import requests
 import random
 import datetime
-import ollama
 import time
 import re
+from src.providers.llm import LlmManager
 from typing import List, Set, Dict, Any
 from .database_manager import DatabaseManager
 from src.logger import log
@@ -16,10 +16,10 @@ from src.color_utils import (
     print_info,
 )
 # --- 新增导入 ---
-from src.providers.pexels import PexelsProvider
-from src.providers.pixabay import PixabayProvider
-from src.providers.ai_search import AiSearchProvider
-from src.providers.base import BaseVideoProvider
+from src.providers.search.pexels import PexelsProvider
+from src.providers.search.pixabay import PixabayProvider
+from src.providers.search.ai_search import AiSearchProvider
+from src.providers.search.base import BaseVideoProvider
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.cluster import AgglomerativeClustering
@@ -59,7 +59,6 @@ class AssetManager:
         self.config = config
         self.task_id = task_id
         self.local_assets_path = config.get('paths', {}).get('local_assets_dir', 'assets/local')
-        self.ollama_config = config.get('ollama', {})
         self.asset_search_config = config.get('asset_search', {})
         # 新增：从配置中读取API请求延迟，默认为3秒
         self.request_delay = self.asset_search_config.get('request_delay_seconds', 3)
@@ -85,9 +84,11 @@ class AssetManager:
             print_success("Pixabay 提供者已启用。")
             self.video_providers.append(PixabayProvider(self.config))
 
-        if not self.ollama_config.get('model'):
-            raise ValueError("Ollama model not configured in config.yaml, which is required for generating new keywords.")
-        self.ollama_client = ollama.Client(host=self.ollama_config.get('host'))
+        llm_manager = LlmManager(config)
+        self.llm_provider = llm_manager.default
+        if not self.llm_provider:
+            raise ValueError("No default LLM provider is available for AssetManager. Please check your config.yaml.")
+        log.info(f"AssetManager is using LLM provider for keyword generation: '{self.llm_provider.name}'")
 
         # 从配置中加载素材关键词生成提示词
         prompts_config = self.config.get('prompts', {})
@@ -169,15 +170,13 @@ class AssetManager:
         
         try:
             # 2. 调用 Ollama Chat 接口
-            response = self.ollama_client.chat(
-                model=self.ollama_config.get('model'),
+            content = self.llm_provider.chat(
                 messages=[
                     {'role': 'system', 'content': self.asset_system_prompt},
                     {'role': 'user',   'content': user_prompt}
                 ],
-                options={'temperature': 0.7}
+                temperature=0.7
             )
-            content = response['message']['content'].strip()
     
             # 3. 去掉模型可能输出的 <think>…</think> 块
             content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL)
@@ -209,7 +208,7 @@ class AssetManager:
             return enriched
     
         except Exception as e:
-            log.warning(f"调用 Ollama 生成关键词时出错: {e}", exc_info=True)
+            log.warning(f"调用 LLM provider '{self.llm_provider.name}' 生成关键词时出错: {e}", exc_info=True)
             # 失败时直接返回 fallback（去重）
             return dedupe_and_fill(
                 [],
@@ -366,6 +365,12 @@ class AssetManager:
         # random.shuffle(self.video_providers)
  
         for provider in self.video_providers:
+            # 检查 provider 是否已被禁用
+            if not provider.enabled:
+                provider_name = provider.__class__.__name__.replace("Provider", "")
+                # log.info(f"Provider '{provider_name}' is disabled, skipping.")
+                continue
+
             # --- 新增：API请求延迟逻辑 ---
             # 对非本地提供者（即需要API调用的）应用延迟
             # LocalProvider 速度快且不访问外部API，因此跳过它。

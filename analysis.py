@@ -3,7 +3,7 @@ import argparse
 import logging
 import json
 from tqdm import tqdm
-from src.utils import load_config, generate_task_id, save_scenes_to_json, check_ollama_service
+from src.utils import load_config, generate_task_id, save_scenes_to_json, check_llm_providers
 from src.subtitle_parser import parse_srt_file
 from src.core.scene_splitter import SceneSplitter
 from src.keyword_generator import KeywordGenerator
@@ -21,7 +21,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 def main(srt_file_name: str, task_id: str | None = None):
     config = load_config()
     # 在执行任何操作前，检查Ollama服务
-    check_ollama_service(config)
+    check_llm_providers(config)
     
     print_info("--- 阶段一: 分析字幕，生成场景草稿 ---")
 

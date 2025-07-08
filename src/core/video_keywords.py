@@ -3,7 +3,8 @@ import os
 import json
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.cluster import AgglomerativeClustering
-import ollama
+from src.providers.llm import LlmManager
+from src.logger import log
 
 def dedupe_and_fill(keywords, target=3, threshold=0.6, fallback=None):
     """
@@ -42,10 +43,14 @@ def dedupe_and_fill(keywords, target=3, threshold=0.6, fallback=None):
 
 class VideoKeywordService:
     def __init__(self, config):
-        # 你的已有初始化逻辑
         self.config = config
-        self.ollama_config = config.get('ollama', {})
-        self.ollama_client = ollama.Client(host=self.ollama_config.get('host'))
+        llm_manager = LlmManager(config)
+        self.llm_provider = llm_manager.default
+        if not self.llm_provider:
+            raise ValueError("No default LLM provider is available for VideoKeywordService.")
+        
+        log.info(f"VideoKeywordService is using LLM provider: '{self.llm_provider.name}'")
+
         prompts = config['prompts']['asset_keyword_generator']
         self.system_prompt = prompts['system']
         self.user_template = prompts['user']
@@ -54,13 +59,18 @@ class VideoKeywordService:
         # 1. 填充 Prompt
         user_prompt = self.user_template.format(scene_text=scene_text)
 
-        # 2. 调用 Ollama 得到原始答案
-        resp = self.ollama_client.chat(
-            model=self.ollama_config['model'],
-            system=self.system_prompt,
-            user=user_prompt
-        )
-        data = json.loads(resp)
+        # 2. 调用 LLM Provider 得到原始答案
+        try:
+            response_text = self.llm_provider.chat(
+                messages=[
+                    {'role': 'system', 'content': self.system_prompt},
+                    {'role': 'user', 'content': user_prompt}
+                ]
+            )
+            data = json.loads(response_text)
+        except Exception as e:
+            log.error(f"调用 LLM provider '{self.llm_provider.name}' 生成关键词时出错: {e}", exc_info=True)
+            data = {}
 
         # 3. 用去重+补齐函数处理英文和中文关键词
         fallback_en = ["healthy lifestyle", "wellness routine", "exercise motion"]

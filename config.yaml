@@ -6,7 +6,7 @@
 # ==============================================================================
 ai_search:
   # 您的 AI 搜索服务 API 密钥
-  api_key: "your-super-secret-token"
+  api_key: "123456"
   # 您的 AI 搜索服务 API 端点 URL
   api_url: "http://127.0.0.1:8000/api/videos/text"
 
@@ -20,16 +20,19 @@ pixabay:
   api_host: "https://pixabay.com"
   api_key: "51157807-3d36b78ae5b3cdfd0b119a2eb"
 
-# (作为Ollama的备用方案，用于关键词提取)
-gemini:
-  api_key: "AIzaSyDsbWrQDdO6wqvUyGfEdJxKU6FXTs6aQNQ"
+llm_providers:
+  default: "ollama"  # 当前默认使用哪个服务
 
-# Local LLM Configuration
-# -----------------------
-# 用于场景分割和关键词生成。请确保Ollama服务正在运行。
-ollama:
-  model: "qwen3:14b-q8_0" # 或者 "llama3" 等你已在本地拉取的模型
-  host: "http://127.0.0.1:11434" # Ollama服务地址
+  ollama:
+    enabled: true
+    model: "qwen3:14b-q8_0"
+    host: "http://127.0.0.1:11434"
+    remark: "本地模型服务，适用于关键词提取和场景分割"
+
+  gemini:
+    enabled: true
+    api_key: "AIzaSyDsbWrQDdO6wqvUyGfEdJxKU6FXTs6aQNQ"
+    remark: "Google Gemini，用作备用关键词提取方案"
 
 api_server:
   # 请修改为一个更长、更随机的安全密钥，例如通过密码管理器生成

@@ -13,3 +13,5 @@ uvicorn[standard]
 tqdm
 python-multipart
 scikit-learn
+
+py3-aeneas

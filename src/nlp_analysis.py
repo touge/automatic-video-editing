@@ -1,9 +1,7 @@
-import google.generativeai as genai
-import ollama
 import os
 import json
-
 from src.logger import log
+from src.providers.llm import LlmManager
 from src.color_utils import (
     print_colored,
     print_error,
@@ -57,99 +55,44 @@ def _parse_llm_json_response(raw_text: str) -> dict | None:
         log.debug("原始响应: %r", raw_text)
         return None
 
-def _extract_keywords_with_gemini(scenes: list, api_key: str) -> list:
-    """
-    使用 Google Gemini API 提取关键词。
-    :param scenes: 场景字典列表。
-    :param api_key: Google Gemini API 密钥。
-    :return: 更新了关键词的场景列表。
-    """
-    print_info("正在使用 Google Gemini API 提取关键词...")
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-pro-latest')
-
-    for scene in scenes:
-        try:
-            prompt = PROMPT_TEMPLATE.format(scene_text=scene["text"])
-            response = model.generate_content(prompt)
-            parsed_data = _parse_llm_json_response(response.text)
-            if parsed_data:
-                scene.pop('keywords', None) # 移除旧的、空的keywords字段
-                scene['text'] = parsed_data.get('punctuated_text', scene['text'])
-                scene['keywords_en'] = parsed_data.get('keywords_en', [])
-                scene['keywords_cn'] = parsed_data.get('keywords_cn', [])
-                print_info("场景: \"%s...\" -> EN关键词: %s", scene['text'][:30], scene.get('keywords_en'))
-            else:
-                scene['keywords_en'] = []
-                scene['keywords_cn'] = []
-        except Exception as e:
-            log.error("调用 Gemini API 失败，场景: \"%s...\"。", scene['text'][:30], exc_info=True)
-            scene['keywords_en'] = []
-            scene['keywords_cn'] = []
-    return scenes
-
-def _extract_keywords_with_ollama(scenes: list, model_name: str, host: str) -> list:
-    """
-    使用本地 Ollama 服务提取关键词。
-    """
-    print_info("正在使用 Ollama (%s @ %s) 提取关键词...", model_name, host)
-    try:
-        client = ollama.Client(host=host)
-        # 检查模型是否已在本地拉取
-        client.list()
-    except Exception as e:
-        log.error("无法连接到 Ollama 服务 at %s。请确保 Ollama 正在运行。", host, exc_info=True)
-        for scene in scenes:
-            scene['keywords_en'] = []
-            scene['keywords_cn'] = []
-        return scenes
-
-    for scene in scenes:
-        try:
-            prompt = PROMPT_TEMPLATE.format(scene_text=scene["text"])
-            # 移除 format="json"，让我们的解析器来处理，这样更稳定
-            response = client.generate(model=model_name, prompt=prompt)
-            parsed_data = _parse_llm_json_response(response['response'])
-            if parsed_data:
-                scene.pop('keywords', None) # 移除旧的、空的keywords字段
-                scene['text'] = parsed_data.get('punctuated_text', scene['text'])
-                scene['keywords_en'] = parsed_data.get('keywords_en', [])
-                scene['keywords_cn'] = parsed_data.get('keywords_cn', [])
-                print_info("场景: \"%s...\" -> EN关键词: %s", scene['text'][:30], scene.get('keywords_en'))
-            else:
-                scene['keywords_en'] = []
-                scene['keywords_cn'] = []
-        except Exception as e:
-            log.error("调用 Ollama API 失败，场景: \"%s...\"。", scene['text'][:30], exc_info=True)
-            scene['keywords_en'] = []
-            scene['keywords_cn'] = []
-    return scenes
-
 def extract_keywords_from_scenes(scenes: list, config: dict) -> list:
     """
     从场景文本中提取富有描述性的关键词。
-    根据配置优先使用 Ollama，其次是 Gemini。
+    使用 LlmManager 动态选择配置的LLM服务。
     :param scenes: 场景字典列表。
-    :param config: 包含 API 密钥和模型配置的字典。
+    :param config: 包含 llm_providers 配置的字典。
     :return: 更新了关键词的场景列表。
     """
-    gemini_config = config.get('gemini', {})
-    ollama_config = config.get('ollama', {})
+    llm_manager = LlmManager(config)
+    llm_provider = llm_manager.default
 
-    # 优先使用 Ollama
-    if ollama_config.get('model'):
-        return _extract_keywords_with_ollama(
-            scenes,
-            model_name=ollama_config['model'],
-            host=ollama_config.get('host', 'http://localhost:11434')
-        )
-    # 如果 Ollama 未配置，则尝试 Gemini
-    elif gemini_config.get('api_key') and "YOUR_GEMINI_API_KEY_HERE" not in gemini_config.get('api_key'):
-        return _extract_keywords_with_gemini(scenes, api_key=gemini_config['api_key'])
-    # 如果两者都未配置
-    else:
-        log.error("Gemini 或 Ollama 均未在 config.yaml 中正确配置。程序将跳过关键词提取。")
+    if not llm_provider:
+        log.error("没有可用的LLM提供者。请检查config.yaml中的'llm_providers'配置。将跳过关键词提取。")
         for scene in scenes:
             scene['keywords_en'] = []
             scene['keywords_cn'] = []
         return scenes
+
+    print_info(f"正在使用 LLM provider '{llm_provider.name}' 提取关键词...")
+
+    for scene in scenes:
+        try:
+            prompt = PROMPT_TEMPLATE.format(scene_text=scene["text"])
+            response_text = llm_provider.generate(prompt)
+            parsed_data = _parse_llm_json_response(response_text)
+            
+            if parsed_data:
+                scene.pop('keywords', None) # 移除旧的、空的keywords字段
+                scene['text'] = parsed_data.get('punctuated_text', scene['text'])
+                scene['keywords_en'] = parsed_data.get('keywords_en', [])
+                scene['keywords_cn'] = parsed_data.get('keywords_cn', [])
+                print_info("场景: \"%s...\" -> EN关键词: %s", scene['text'][:30], scene.get('keywords_en'))
+            else:
+                scene['keywords_en'] = []
+                scene['keywords_cn'] = []
+        except Exception as e:
+            log.error(f"调用 LLM provider '{llm_provider.name}' 失败，场景: \"%s...\"。", scene['text'][:30], exc_info=True)
+            scene['keywords_en'] = []
+            scene['keywords_cn'] = []
+            
+    return scenes
