@@ -8,7 +8,7 @@ ai_search:
   # 您的 AI 搜索服务 API 密钥
   api_key: "123456"
   # 您的 AI 搜索服务 API 端点 URL
-  api_url: "http://127.0.0.1:8000/api/videos/text"
+  api_url: "http://127.0.0.1:8004/api/videos/text"
 
 # 前往 https://www.pexels.com/api/ 获取你的免费API Key
 pexels:
@@ -21,7 +21,7 @@ pixabay:
   api_key: "51157807-3d36b78ae5b3cdfd0b119a2eb"
 
 llm_providers:
-  default: "ollama"  # 当前默认使用哪个服务
+  default: "siliconflow"  # 当前默认使用哪个服务
 
   ollama:
     enabled: true
@@ -33,6 +33,13 @@ llm_providers:
     enabled: true
     api_key: "AIzaSyDsbWrQDdO6wqvUyGfEdJxKU6FXTs6aQNQ"
     remark: "Google Gemini，用作备用关键词提取方案"
+
+  siliconflow:
+    enabled: true
+    api_key: "sk-pvracxuykfnajymvqjyxxfmqiwfmqchlsasekahpilkysiiq"  # 请替换为您的 API Key
+    model: "Qwen/Qwen3-14B" # 默认模型，可以根据需要修改
+    host: "https://api.siliconflow.cn/v1"
+    remark: "硅基流动, 用于生成视频脚本和关键词"
 
 api_server:
   # 请修改为一个更长、更随机的安全密钥，例如通过密码管理器生成

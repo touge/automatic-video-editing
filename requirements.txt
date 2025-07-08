@@ -6,6 +6,7 @@ google-generativeai
 openai-whisper
 colorama
 rich
+openai
 
 # API Server
 fastapi

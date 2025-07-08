@@ -1,96 +1,117 @@
 # API Keys & Services
 # -------------------
-# 用于在线搜索视频素材和进行自然语言处理。
+
+# ==============================================================================
+# AI 智能搜索配置 (可选)
+# ==============================================================================
+ai_search:
+  # 您的 AI 搜索服务 API 密钥
+  api_key: "YOUR_AI_SEARCH_API_KEY"
+  # 您的 AI 搜索服务 API 端点 URL
+  api_url: "http://127.0.0.1:8004/api/videos/text"
+
 # 前往 https://www.pexels.com/api/ 获取你的免费API Key
 pexels:
   api_host: "https://api.pexels.com"
-  api_key: "YOUR-PRIMARY-KEY"
+  api_key: "YOUR_PEXELS_API_KEY"
 
 # 前往 https://pixabay.com/api/docs/ 获取你的免费API Key
 pixabay:
   api_host: "https://pixabay.com"
-  api_key: "YOUR-PRIMARY-KEY"
+  api_key: "YOUR_PIXABAY_API_KEY"
 
-# (作为Ollama的备用方案，用于关键词提取)
-gemini:
-  api_key: "YOUR-PRIMARY-KEY"
+# ==============================================================================
+# 大语言模型 (LLM) 提供商配置
+# ==============================================================================
+llm_providers:
+  # 设置默认使用的LLM服务 (例如: "ollama", "gemini", "siliconflow")
+  default: "ollama"
 
-# Local LLM Configuration
-# -----------------------
-# 用于场景分割和关键词生成。请确保Ollama服务正在运行。
-ollama:
-  model: "qwen3:14b-q8_0" # 或者 "llama3" 等你已在本地拉取的模型
-  host: "http://localhost:11434" # Ollama服务地址
+  # 本地 Ollama 服务配置
+  ollama:
+    enabled: true
+    model: "qwen3:14b-q8_0" # 或者 "llama3" 等你已在本地拉取的模型
+    host: "http://127.0.0.1:11434" # Ollama服务地址
+    remark: "本地模型服务，适用于关键词提取和场景分割"
 
+  # Google Gemini (可选)
+  gemini:
+    enabled: false # 默认禁用，需要时请设为 true
+    api_key: "YOUR_GEMINI_API_KEY"
+    remark: "Google Gemini，用作备用关键词提取方案"
+
+  # 硅基流动 (SiliconFlow) (可选)
+  siliconflow:
+    enabled: false # 默认禁用，需要时请设为 true
+    api_key: "YOUR_SILICONFLOW_API_KEY"
+    model: "Qwen/Qwen2-7B-Instruct"
+    host: "https://api.siliconflow.cn/v1"
+    remark: "硅基流动, 用于生成视频脚本和关键词"
+
+# ==============================================================================
+# API 服务器配置
+# ==============================================================================
 api_server:
   # 请修改为一个更长、更随机的安全密钥，例如通过密码管理器生成
   secret_key: "CHANGE_THIS_TO_A_LONG_RANDOM_SECRET_KEY"
 
-# Video Output Settings
-# ---------------------
+# ==============================================================================
+# 视频输出设置
+# ==============================================================================
 video:
   width: 1920
   height: 1080
   fps: 30
-  # 单个视频片段在场景中的最大时长（秒）。
   max_clip_duration: 8.0
-  # 单个视频片段的最小市场（秒）。
   min_clip_duration: 3.0
-  # 字幕样式配置 (可选)
+
   subtitles:
-    # 包含自定义字体文件 (.ttf, .otf) 的目录的路径。
-    # FFmpeg/libass 将会在此目录中查找字体。
-    font_dir: "assets/styles/fonts"
-    # 要使用的字体名称 (必须是字体文件名或字体内部定义的名称)。
-    font_name: "方正粗雅宋长繁体"
-    # 字幕的字体大小。
+    font_dir: "assets/fonts"
+    font_name: "港风繁体-方正粗宋繁体"
     font_size: 24
-    # 字幕的主要颜色 (ASS格式，例如 &H00FFFFFF 表示白色)。
     primary_color: "&H00FFFFFF"
-    # 边框/描边的颜色 (ASS格式, &H00000000 表示黑色)。
     outline_color: "&H00000000"
-    # 边框样式。1=带阴影的边框, 3=不透明背景框。
     border_style: 1
-    # 边框/描边的宽度 (像素)。
     outline: 1
-    # 阴影的深度 (像素)。
     shadow: 0
-    # 字符间距 (像素)。
     spacing: 0.5
-    # 字幕对齐方式 (使用数字小键盘布局): 1=左下, 2=中下, 3=右下, 5=中中, 8=中上, etc.
     alignment: 2
-    # 垂直边距 (像素)。对于底部对齐，这是字幕距离视频底部的距离。增加此值可将字幕向上推。
     vertical_margin: 30
-# File Paths
-# ----------
+
+# ==============================================================================
+# 文件路径设置
+# ==============================================================================
 paths:
-  # 你的本地视频素材库，下载的素材也会保存在这里。
   local_assets_dir: "assets/local"
 
-# Asset Search Strategy
-# ---------------------
+# ==============================================================================
+# 素材搜索策略
+# ==============================================================================
 asset_search:
-  # 如果初始关键词搜索素材失败，使用LLM生成新关键词并重试的最大次数。
-  max_keyword_retries: 2
-  # 在线搜索时，为每个关键词请求的视频数量。
-  # 增加此值可以提高找到未使用素材的几率，但会增加API调用次数。
   online_search_count: 15
+  max_keyword_retries: 2
+  request_delay_seconds: 1
+  fallback_en:
+    - healthy lifestyle
+    - wellness routine
+    - exercise motion
+  fallback_cn:
+    - 健康生活方式
+    - 养生日常
+    - 运动镜头
 
-# Scene Detection Parameters
-# --------------------------
-# 用于阶段一的语义场景分割。
+# ==============================================================================
+# 场景检测参数
+# ==============================================================================
 scene_detection:
   splitter:
-    # LLM一次处理的字幕行数。
     chunk_size: 50
-    # 区块之间的重叠行数，以确保上下文连续性。
     overlap: 10
 
+# ==============================================================================
 # Prompt Engineering
-# ------------------
-# 用于指导大语言模型完成特定任务的提示词模板。
+# ==============================================================================
 prompts:
-  # 用于场景分割 (Stage 1)
   scene_splitter: |
     You are an expert in video editing. Your task is to analyze a script with numbered lines and identify the natural break points where a scene should change. A scene change can be indicated by a shift in topic, location, time, or emotional tone.
     Your response MUST be a comma-separated list of the line numbers that mark the END of each scene.
@@ -102,23 +123,42 @@ prompts:
     {numbered_text}
     ---
 
-  # 用于为场景生成关键词 (Stage 1)
   keyword_generator: |
-    You are a creative director and shot-list creator for video production.
-    Based on the scene description, your task is to:
-    1.  Add appropriate punctuation to the original text to make it a natural, readable sentence.
-    2.  Create a list of **up to 3** English keywords, suitable for searching stock video footage. These should be concrete, visual, and action-oriented. **The keywords must be sorted by relevance, with the most important one first.**
-    3.  Create a list of **up to 3** Chinese keywords that describe a sequence of shots, like a storyboard. **The keywords must be sorted by relevance, with the most important one first.**
+    You are a creative director and shot-list creator for health & wellness video production.
+    Use the following weighted keyword categories as a guide when generating stock-footage search terms:
+      • 20% 症状与病因 (symptom & cause)
+      • 20% 食材与营养 (ingredient & nutrition)
+      • 15% 运动与体式 (exercise & posture)
+      • 10% 日常习惯 (daily habits)
+      • 10% 心理调节 (mental regulation)
+      • 10% 治疗与预防 (treatment & prevention)
+      • 5%  数据与案例 (data & case examples)
+      • 10% 专家建议 (expert advice)
+
+    Based on the scene description, your task is:
+    1. Add appropriate punctuation to the original text to make it a natural, readable sentence.
+
+    2. Create a list of up to **6** English keywords for stock-footage searches.
+      - Keywords must be concrete, visual, action-oriented.
+      - Keywords must be mutually distinct (no same-core-concept or simple synonym).
+      - Sort by relevance (highest first).
+      - From these 6, select the top **3** unique keywords (highest relevance first).
+
+    3. Create a list of up to **6** Chinese keywords that describe a sequence of shots (storyboard style).
+      - Keywords must be concrete, visual, action-oriented.
+      - Keywords must be mutually distinct (no same-core-concept or simple synonym).
+      - Sort by relevance (highest first).
+      - From these 6, select the top **3** unique keywords (highest relevance first).
 
     You MUST return your response as a single, valid JSON object. Do not include any other text or explanations.
 
-    **Example:**
-    Scene Description: "一个24岁的中国女孩远赴意大利与父母团聚在异国他乡勤劳打拼"
+    Example:
+    Scene Description: "一位45岁的上班族女性每天坚持晨跑5公里，以提升体能和减压"
     Your JSON Response:
     {{
-      "punctuated_text": "一个24岁的中国女孩，远赴意大利与父母团聚，在异国他乡勤劳打拼。",
-      "keywords_en": ["woman on airplane", "family hug at airport", "working hard abroad"],
-      "keywords_cn": ["一个女人坐飞机", "父母机场接机", "在异国努力工作"]
+      "punctuated_text": "一位45岁的上班族女性，每天坚持晨跑5公里，以提升体能和减压。",
+      "keywords_en": ["morning jogging", "urban runner", "stress relief exercise"],
+      "keywords_cn": ["上班族女性晨跑", "城市慢跑", "减压运动"]
     }}
 
     Now, process the following scene.
@@ -127,7 +167,6 @@ prompts:
 
     Your JSON Response:
 
-  # 用于在素材搜索失败后生成新的关键词 (Stage 2 retry)
   asset_keyword_generator:
     system: |
       You are an AI assistant that helps find stock video footage. Your task is to generate new, diverse, and specific English keywords based on a scene description and a list of keywords that have already been tried and failed.
@@ -137,7 +176,8 @@ prompts:
       The following keywords have already been tried and failed: {existing_keywords}
       Generate new, different keywords for this scene: "{scene_text}"
 
+# ==============================================================================
 # General Settings
-# ----------------
+# ==============================================================================
 # 设置为 true 以在视频合成时启用详细的 ffmpeg 日志，便于排查问题。
 debug: false

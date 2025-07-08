@@ -1,6 +1,7 @@
 from .base import BaseLlmProvider
 from .ollama import OllamaProvider
 from .gemini import GeminiProvider
+from .siliconflow import SiliconflowProvider
 from src.logger import log
 from typing import Dict, Optional
 
@@ -8,6 +9,7 @@ from typing import Dict, Optional
 _PROVIDER_CLASSES = {
     'ollama': OllamaProvider,
     'gemini': GeminiProvider,
+    'siliconflow': SiliconflowProvider,
 }
 
 class LlmManager:
