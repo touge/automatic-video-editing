@@ -148,13 +148,13 @@ scene_detection:
 # 用于指导大语言模型完成特定任务的提示词模板。
 prompts:
   # 用于场景分割 (Stage 1)
-  scene_splitter: "assets/prompts/scene_splitter.md"
+  scene_splitter: "assets/prompts/scene_splitter.yaml"
 
-  keyword_generator: "assets/prompts/keyword_generator.md"
+  keyword_generator: "assets/prompts/keyword_generator.yaml"
 
 
   # 用于在素材搜索失败后生成新的关键词 (Stage 2 retry)
-  asset_keyword_generator: "assets/prompts/asset_keyword_generator.md"
+  asset_keyword_generator: "assets/prompts/asset_keyword_generator.yaml"
 
 # General Settings
 # ----------------

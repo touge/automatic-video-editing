@@ -21,7 +21,8 @@ pixabay:
   api_key: "51157807-3d36b78ae5b3cdfd0b119a2eb"
 
 llm_providers:
-  default: "ollama"  # 当前默认使用哪个服务
+  # 主要控制点：明确指定默认提供者
+  default: "siliconflow"  
 
   ollama:
     enabled: false
@@ -55,6 +56,34 @@ llm_providers:
       - "gemini-1.5-pro"
     remark: "OpenAI, for high-quality text generation"
 
+llm:
+  llama_cpp:
+    enabled: true
+    model_dir: "models/gguf"
+    default_model: "qwen3-14b"
+    models:
+      - name: "qwen3-14b"
+        path: "Qwen3-14B-Q4_K_M.gguf"
+        n_ctx: 16384            # 增加上下文窗口，提升长文本处理能力
+        n_gpu_layers: -1        # RTX 4090全量加载
+        n_threads: 16           # 增加线程数提升CPU性能
+        n_batch: 512           # 新增批处理大小参数
+        temperature: 0.8       # 略微提高创造性
+        top_p: 0.9            # 稍微降低以增加输出的确定性
+        repeat_penalty: 1.1    # 新增重复惩罚因子
+        top_k: 40             # 新增 top-k 采样参数
+      
+      - name: "qwen3-8b"
+        path: "Qwen3-8B-Q4_K_M.gguf"
+        n_ctx: 8192            # 8B版本也可以用更大上下文
+        n_gpu_layers: -1       # RTX 4090同样可以全量加载
+        n_threads: 12          # 适中的线程数
+        n_batch: 1024         # 较大的批处理大小
+        temperature: 0.7      # 保持默认温度
+        top_p: 0.95          # 保持较高的采样概率
+        repeat_penalty: 1.05  # 较轻的重复惩罚
+        top_k: 50            # 更大的采样范围
+
 api_server:
   # 请修改为一个更长、更随机的安全密钥，例如通过密码管理器生成
   secret_key: "123456"
@@ -74,9 +103,9 @@ video:
   subtitles:
     # 包含自定义字体文件 (.ttf, .otf) 的目录的路径。
     # FFmpeg/libass 将会在此目录中查找字体。
-    font_dir: "assets/styles/fonts"
+    font_dir: "assets/fonts"
     # 要使用的字体名称 (必须是字体文件名或字体内部定义的名称)。
-    font_name: "方正粗雅宋长繁体"
+    font_name: "港风繁体-方正粗宋繁体"
     # 字幕的字体大小。
     font_size: 24
     # 字幕的主要颜色 (ASS格式，例如 &H00FFFFFF 表示白色)。
@@ -148,13 +177,13 @@ scene_detection:
 # 用于指导大语言模型完成特定任务的提示词模板。
 prompts:
   # 用于场景分割 (Stage 1)
-  scene_splitter: "assets/prompts/scene_splitter.md"
+  scene_splitter: "assets/prompts/scene_splitter.yaml"
 
-  keyword_generator: "assets/prompts/keyword_generator.md"
+  keyword_generator: "assets/prompts/keyword_generator.yaml"
 
 
   # 用于在素材搜索失败后生成新的关键词 (Stage 2 retry)
-  asset_keyword_generator: "assets/prompts/asset_keyword_generator.md"
+  asset_keyword_generator: "assets/prompts/asset_keyword_generator.yaml"
 
 # General Settings
 # ----------------

@@ -24,17 +24,17 @@ def ensure_task_path(task_id: str):
     os.makedirs(task_path, exist_ok=True)
     return task_path
 
-def save_scenes_to_json(scenes: list, task_id: str):
-    """将带有关键词的场景保存到指定任务的JSON文件，供人工审核。"""
-    task_path = ensure_task_path(task_id)
-    file_path = os.path.join(task_path, "scenes.json")
-    log.info(f"场景和关键词已生成，保存至: {file_path}")
-    with open(file_path, 'w', encoding='utf-8') as f:
-        json.dump(scenes, f, ensure_ascii=False, indent=4)
+# def save_scenes_to_json(scenes: list, task_id: str):
+#     """将带有关键词的场景保存到指定任务的JSON文件，供人工审核。"""
+#     task_path = ensure_task_path(task_id)
+#     file_path = os.path.join(task_path, "final_scenes.json")
+#     log.info(f"场景和关键词已生成，保存至: {file_path}")
+#     with open(file_path, 'w', encoding='utf-8') as f:
+#         json.dump(scenes, f, ensure_ascii=False, indent=4)
 
 def load_scenes_from_json(task_id: str) -> list:
     """从指定任务的JSON文件中加载（可能已修改的）场景。"""
-    file_path = os.path.join(get_task_path(task_id), "scenes.json")
+    file_path = os.path.join(get_task_path(task_id), "final_scenes.json")
     log.info(f"从文件加载场景: {file_path}")
     try:
         with open(file_path, 'r', encoding='utf-8') as f:

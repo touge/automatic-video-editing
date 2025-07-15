@@ -4,7 +4,8 @@ from threading import Lock
 from faster_whisper import WhisperModel
 from sentence_transformers import SentenceTransformer
 from opencc import OpenCC
-from .config import Config
+from src.config_loader import Config
+import os
 
 # Conditionally import ONNX-related classes
 try:
@@ -36,10 +37,18 @@ class ModelLoader(metaclass=SingletonMeta):
             
         logging.info("Initializing ModelLoader singleton...")
         self.config = config
-        self.whisper_model_path = self.config.get('model_paths.whisper')
+        self._local_bash_path = self.config.get('paths.local_models.bash_path', 'models')
+
+        # audio_path = os.path.join(audio_segments_dir, f"{i}.wav")
+        # os.path.join(self._load_models_base_path, 'whisper')
+
+        self.whisper_model_path = os.path.join(
+            self._local_bash_path, 
+            self.config.get('paths.local_models.whisper','whisper')
+        )
         
         if not self.whisper_model_path:
-            raise ValueError("Whisper model path is not defined in the configuration file.")
+            raise ValueError("Whisper model path ('paths.local_models.whisper') is not defined in the configuration file.")
 
         self.whisper_model = None
         self.sentence_model = None
@@ -48,11 +57,15 @@ class ModelLoader(metaclass=SingletonMeta):
 
     def _load_sentence_transformer(self):
         """Loads the Sentence Transformer model based on the config."""
-        use_onnx = self.config.get('model_options.sentence_transformer.use_onnx', False)
-        model_path = self.config.get('model_options.sentence_transformer.path')
+        use_onnx = self.config.get('paths.local_models.sentence_transformer.use_onnx', False)
+
+        model_path = os.path.join(
+            self._local_bash_path,
+            self.config.get('paths.local_models.sentence_transformer.path')
+        )
 
         if not model_path:
-            raise ValueError("Sentence Transformer path is not defined in config.")
+            raise ValueError("Sentence Transformer path ('paths.local_models.sentence_transformer.path') is not defined in config.")
 
         if use_onnx:
             if not ONNX_AVAILABLE:

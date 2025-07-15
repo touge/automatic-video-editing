@@ -26,31 +26,6 @@ def _escape_ffmpeg_path(path: str | Path) -> str:
         return path_str.replace('\\', '/').replace(':', '\\:')
     return path_str
 
-def _scenes_to_srt(scenes: list, srt_path: str):
-    """将场景数据转换为SRT字幕文件"""
-    with open(srt_path, 'w', encoding='utf-8') as f:
-        for i, scene in enumerate(scenes):
-            # 使用场景分割时确定的精确起止时间
-            start_time = scene.get('scene_start', 0)
-            end_time = scene.get('scene_end', 0)
-            text = scene['text']
-
-            if end_time <= start_time:
-                continue
-
-            start_h, rem = divmod(start_time, 3600)
-            start_m, rem = divmod(rem, 60)
-            start_s, start_ms = divmod(rem, 1)
-
-            end_h, rem = divmod(end_time, 3600)
-            end_m, rem = divmod(rem, 60)
-            end_s, end_ms = divmod(rem, 1)
-
-            f.write(f"{i + 1}\n")
-            f.write(f"{int(start_h):02}:{int(start_m):02}:{int(start_s):02},{int(start_ms*1000):03} --> "
-                    f"{int(end_h):02}:{int(end_m):02}:{int(end_s):02},{int(end_ms*1000):03}\n")
-            f.write(f"{text}\n\n")
-
 class VideoComposer:
     def __init__(self, config: dict, task_id: str):
         self.config = config
@@ -69,7 +44,7 @@ class VideoComposer:
         self.debug = self.config.get('debug', False)
 
         # 为每个阶段的产出物（缓存）创建一个目录
-        self.cache_path = self.task_path / ".cache/segs"
+        self.cache_path = self.task_path / ".videos"
         self.cache_path.mkdir(parents=True, exist_ok=True)
 
     def _detect_video_encoder(self) -> tuple[str, list, bool]:
@@ -184,12 +159,6 @@ class VideoComposer:
         # 如果所有方案都失败了
         print_error(f"错误: 无法处理片段 {src_path}，所有编码方案均告失败。该片段将被跳过。")
 
-    # def _make_concat_list(self, segment_paths: list[Path], list_path: Path):
-    #     """为ffmpeg的concat demuxer创建文件列表。"""
-    #     with list_path.open('w', encoding='utf-8') as f:
-    #         for seg_path in segment_paths:
-    #             # 使用 as_posix() 确保路径在所有系统上都使用正斜杠
-    #             f.write(f"file '{seg_path.as_posix()}'\n")
     def _make_concat_list(self, segment_paths: list[Path], list_path: Path):
         """为 ffmpeg 的 concat demuxer 创建文件列表。"""
         lines = []
@@ -260,7 +229,94 @@ class VideoComposer:
             if progress_log_path.exists():
                 progress_log_path.unlink()
 
-    def assemble_video(self, scenes: list, scene_asset_paths: list, audio_path: str, subtitle_option: str | None):
+    def _validate_subtitle_config(self):
+        """验证字幕配置和相关文件"""
+        subtitle_config = self.config.get('video', {}).get('subtitles', {})
+        font_dir = Path(subtitle_config.get('font_dir', 'assets/styles/fonts'))
+        font_name = subtitle_config.get('font_name')
+        
+        if not font_dir.exists():
+            log.error(f"字体目录不存在: {font_dir}")
+            return False
+            
+        font_files = list(font_dir.glob('*.?tf'))  # 匹配 .ttf 和 .otf
+        if not font_files:
+            log.error(f"字体目录中没有找到字体文件: {font_dir}")
+            return False
+            
+        log.debug(f"找到字体文件: {[f.name for f in font_files]}")
+        return True
+
+    def _burn_subtitles(self, input_path: Path, output_path: Path, subtitle_path: Path):
+        """烧录字幕的具体实现"""
+        if not self._validate_subtitle_config():
+            log.error("字幕配置验证失败，请检查字体文件和配置")
+            raise RuntimeError("字幕配置验证失败")
+        
+        subtitle_config = self.config.get('video', {}).get('subtitles', {})
+        
+        # 验证字体目录
+        font_dir = Path(subtitle_config.get('font_dir', 'assets/fonts'))
+        if not font_dir.exists():
+            log.error(f"字体目录不存在: {font_dir}")
+            raise RuntimeError(f"字体目录不存在: {font_dir}")
+        
+        # 将字体目录添加到字幕滤镜
+        escaped_font_dir = _escape_ffmpeg_path(font_dir.resolve())
+        subtitle_filter = (
+            f"subtitles={_escape_ffmpeg_path(subtitle_path)}"
+            f":fontsdir='{escaped_font_dir}'"
+            f":force_style='"
+            f"FontName={subtitle_config['font_name']},"
+            f"FontSize={subtitle_config['font_size']},"
+            f"PrimaryColour={subtitle_config['primary_color']},"
+            f"OutlineColour={subtitle_config['outline_color']},"
+            f"BorderStyle={subtitle_config['border_style']},"
+            f"Outline={subtitle_config['outline']},"
+            f"Shadow={subtitle_config['shadow']},"
+            f"Spacing={subtitle_config['spacing']},"
+            f"Alignment={subtitle_config['alignment']},"
+            f"MarginV={subtitle_config['vertical_margin']}'"
+        )
+        
+        try:
+            # 构建 FFmpeg 命令
+            ffmpeg_cmd = [
+                'ffmpeg', '-y',
+                '-i', str(input_path),
+                '-vf', subtitle_filter,
+                '-c:a', 'copy',
+                str(output_path)
+            ]
+            
+            if self.debug:
+                log.debug("字幕配置信息:")
+                log.debug(f"字体目录: {font_dir}")
+                log.debug(f"字体名称: {subtitle_config['font_name']}")
+                log.debug(f"FFmpeg 字幕烧录命令: {' '.join(ffmpeg_cmd)}")
+            
+            # 直接使用 run_cmd 而不是 subprocess.run
+            self._run_cmd(ffmpeg_cmd)
+            
+        except subprocess.CalledProcessError as e:
+            log.error(f"FFmpeg 烧录字幕失败: {e}")
+            # 尝试运行一个简单的测试命令来验证字幕功能
+            test_cmd = [
+                'ffmpeg', '-y',
+                '-i', str(input_path),
+                '-vf', f"subtitles={_escape_ffmpeg_path(subtitle_path)}",
+                '-t', '10',  # 只测试前10秒
+                '-c:a', 'copy',
+                str(output_path.parent / 'test_subtitle.mp4')
+            ]
+            try:
+                log.debug("尝试运行简化的字幕测试...")
+                self._run_cmd(test_cmd)
+            except subprocess.CalledProcessError:
+                log.error("简化字幕测试也失败，可能是字幕文件格式有问题")
+            raise
+
+    def assemble_video(self, scenes: list, scene_asset_paths: list, audio_path: str, burn_subtitle: bool = False):
         """
         采用分阶段、多级缓存的策略，将视频片段和音频合成为最终视频。
         """
@@ -360,58 +416,32 @@ class VideoComposer:
 
         # --- 阶段 5/5: 烧录字幕并生成最终视频 ---
         print_info("--- 阶段 5/5: 生成最终视频 ---")
-        srt_path = None
-        if subtitle_option:
-            if subtitle_option == "GENERATE":
-                print_info("根据场景数据生成字幕文件...")
-                srt_path = self.cache_path / "subtitles.srt"
-                _scenes_to_srt(scenes, str(srt_path))
-            else:
-                srt_path_obj = Path(subtitle_option)
-                if srt_path_obj.exists():
-                    srt_path = self.cache_path / srt_path_obj.name
-                    shutil.copy(srt_path_obj, srt_path)
-                else:
-                    log.warning(f"指定的字幕文件 {subtitle_option} 未找到，将不添加字幕。")
-
-        if srt_path:
-            print_info("正在烧录字幕...")
-            escaped_srt_path = _escape_ffmpeg_path(srt_path)
-
-            subtitle_filter_parts = [f"subtitles={escaped_srt_path}"]
-            font_dir = self.subtitle_config.get('font_dir')
-            if font_dir and os.path.isdir(font_dir):
-                escaped_font_dir = _escape_ffmpeg_path(Path(font_dir).resolve())
-                subtitle_filter_parts.append(f"fontsdir='{escaped_font_dir}'")
-
-            style_mapping = {
-                'font_name': 'FontName', 'font_size': 'FontSize',
-                'primary_color': 'PrimaryColour', 'outline_color': 'OutlineColour',
-                'border_style': 'BorderStyle', 'outline': 'Outline', 'shadow': 'Shadow', 'spacing': 'Spacing',
-                'alignment': 'Alignment', 'vertical_margin': 'MarginV',
-            }
-            style_options = [f"{style_key}={value}" for config_key, style_key in style_mapping.items() if (value := self.subtitle_config.get(config_key)) is not None]
-
-            if style_options:
-                subtitle_filter_parts.append(f"force_style='{','.join(style_options)}'")
-
-            final_filter_string = ':'.join(subtitle_filter_parts)
-
-            final_cmd = [
-                'ffmpeg', '-y',
-                '-i', str(video_with_audio_path),
-                '-vf', final_filter_string,
-                '-c:v', codec, *extra_args,
-                '-c:a', 'copy',
-                str(final_video_path)
-            ]
-            try:
-                self._run_ffmpeg_with_progress(final_cmd, total_duration, "烧录字幕")
-            except CalledProcessError:
-                log.error("烧录字幕失败，程序终止。")
+        srt_path = None  # 在这里初始化变量
+        
+        if burn_subtitle:
+            srt_path = self.task_path / "final.srt"
+            if not srt_path.exists():
+                log.error(f"字幕文件 {srt_path} 未找到，无法烧录字幕。")
                 return
+                
+        final_video_path = self.task_path / "final_video.mp4"
+
+        if srt_path and srt_path.exists():
+            print_info("正在烧录字幕...")
+            try:
+                self._burn_subtitles(
+                    input_path=video_with_audio_path,
+                    output_path=final_video_path,
+                    subtitle_path=srt_path
+                )
+                print_success("字幕烧录完成。")
+            except Exception as e:
+                log.error(f"字幕烧录失败: {e}")
+                # 如果字幕烧录失败，至少保存无字幕版本
+                print_warning("保存无字幕版本...")
+                shutil.copy(str(video_with_audio_path), str(final_video_path))
         else:
-            print_success("无需烧录字幕，直接复制文件...")
+            print_info("无需烧录字幕，直接复制文件...")
             shutil.copy(str(video_with_audio_path), str(final_video_path))
 
         print_info("\n############################################################")

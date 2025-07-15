@@ -4,6 +4,7 @@ from .ollama import OllamaProvider
 from .gemini import GeminiProvider
 from .siliconflow import SiliconflowProvider
 from .openai import OpenAIProvider
+from .llama_cpp_provider import LlamaCppProvider
 from src.logger import log
 from typing import Dict, Optional, List, Any, Callable
 
@@ -13,6 +14,7 @@ _PROVIDER_CLASSES = {
     'gemini': GeminiProvider,
     'siliconflow': SiliconflowProvider,
     'openai': OpenAIProvider,
+    'llama_cpp': LlamaCppProvider,
 }
 
 class LlmManager:

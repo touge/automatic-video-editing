@@ -32,11 +32,20 @@ class Config:
         elif isinstance(data, list):
             for i, item in enumerate(data):
                 data[i] = self._resolve_paths(item)
-        elif isinstance(data, str) and data.endswith('.md'):
+        elif isinstance(data, str) and data.endswith(('.md', '.yaml', '.yml')):
             file_path = Path(project_root) / data
             if file_path.is_file():
                 with open(file_path, 'r', encoding='utf-8') as f:
-                    return f.read().strip()
+                    if data.endswith(('.yaml', '.yml')):
+                        # Parse YAML file
+                        parsed_data = yaml.safe_load(f)
+                        # If it's a dictionary with a single 'prompt' key, return the value directly
+                        # to maintain compatibility with code expecting a string.
+                        if isinstance(parsed_data, dict) and len(parsed_data) == 1 and 'prompt' in parsed_data:
+                            return parsed_data['prompt'].strip()
+                        return parsed_data
+                    else: # .md file
+                        return f.read().strip()
         return data
 
     def get(self, key_path, default=None):

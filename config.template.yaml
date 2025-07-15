@@ -1,0 +1,150 @@
+# API Keys & Services
+# -------------------
+
+# ==============================================================================
+# AI 智能搜索配置
+# ==============================================================================
+ai_search:
+  api_key: "YOUR_AI_SEARCH_API_KEY"  # 替换为你的 API 密钥
+  api_url: "http://127.0.0.1:8004/api/videos/text"  # 替换为你的 API 端点
+
+# Pexels API配置
+# 获取API Key: https://www.pexels.com/api/
+pexels:
+  api_host: "https://api.pexels.com"
+  api_key: "YOUR_PEXELS_API_KEY"  # 替换为你的 Pexels API Key
+
+# Pixabay API配置
+# 获取API Key: https://pixabay.com/api/docs/
+pixabay:
+  api_host: "https://pixabay.com"
+  api_key: "YOUR_PIXABAY_API_KEY"  # 替换为你的 Pixabay API Key
+
+# LLM服务提供商配置
+llm_providers:
+  default: "ollama"  # 设置默认使用的LLM服务
+
+  ollama:
+    enabled: true
+    models:
+      - "qwen3:14b-q8_0"
+    host: "http://127.0.0.1:11434"
+    remark: "本地模型服务，适用于关键词提取和场景分割"
+
+  siliconflow:
+    enabled: false
+    api_key: "YOUR_SILICONFLOW_API_KEY"
+    models:
+      - "Qwen/Qwen3-14B"
+    host: "https://api.siliconflow.cn/v1"
+    remark: "硅基流动, 用于生成视频脚本和关键词"
+
+  openai:
+    enabled: false
+    api_key: "YOUR_OPENAI_API_KEY"
+    base_url: "YOUR_OPENAI_API_ENDPOINT"
+    models:
+      - "gpt-3.5-turbo"
+      - "gpt-4"
+    remark: "OpenAI, for high-quality text generation"
+
+  llama_cpp:
+    enabled: true
+    model_dir: "models/llama"
+    models:
+      - name: "mistral-7b"
+        path: "mistral-7b-instruct-v0.2.Q4_K_M.gguf"
+        n_ctx: 4096
+        n_gpu_layers: -1  # -1表示自动决定
+        n_threads: 8      # CPU线程数
+      - name: "llama2-7b"
+        path: "llama-2-7b-chat.Q4_K_M.gguf"
+        n_ctx: 2048
+        n_gpu_layers: 35
+        n_threads: 4
+      - name: "codellama-7b"
+        path: "codellama-7b-instruct.Q4_K_M.gguf"
+        n_ctx: 8192
+        n_gpu_layers: -1
+        n_threads: 8
+    default_model: "mistral-7b"
+    priority: 2
+
+# API服务器配置
+api_server:
+  secret_key: "CHANGE_THIS_TO_A_SECURE_KEY"  # 使用安全的随机字符串
+
+# 视频输出设置
+video:
+  width: 1920
+  height: 1080
+  fps: 30
+  max_clip_duration: 8.0
+  min_clip_duration: 3.0
+  
+  subtitles:
+    font_dir: "assets/fonts"
+    font_name: "港风繁体-方正粗宋繁体"
+    font_size: 24
+    primary_color: "&H00FFFFFF"
+    outline_color: "&H00000000"
+    border_style: 1
+    outline: 1
+    shadow: 0
+    spacing: 0.5
+    alignment: 2
+    vertical_margin: 30
+
+# 文件路径配置
+paths:
+  local_assets_dir: "storage/local"
+  local_models: 
+    base_path: "models"
+    whisper: "whisper/faster-whisper-medium"
+    sentence_transformer: 
+      use_onnx: true
+      path: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2-onnx"
+
+# 素材搜索策略
+asset_search:
+  online_search_count: 15
+  max_keyword_retries: 2
+  request_delay_seconds: 1
+  fallback_en:
+    - healthy lifestyle
+    - wellness routine
+    - exercise motion
+  fallback_cn:
+    - 健康生活方式
+    - 养生日常
+    - 运动镜头
+
+# 场景检测参数
+scene_detection:
+  splitter:
+    chunk_size: 50
+    overlap: 10
+
+# 提示词工程
+prompts:
+  scene_splitter: "assets/prompts/scene_splitter.yaml"
+  keyword_generator: "assets/prompts/keyword_generator.yaml"
+  asset_keyword_generator: "assets/prompts/asset_keyword_generator.yaml"
+
+# 常规设置
+debug: false
+
+# 日志配置
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(levelname)s - %(message)s"
+
+# TTS服务配置
+tts_providers:
+  default: "cosyvoice"
+  cosyvoice:
+    enabled: true
+    base_endpoint: "YOUR_COSYVOICE_ENDPOINT"
+    api_key: "YOUR_COSYVOICE_API_KEY"
+    default_speaker: "台湾-中年医生-男"
+    remark: "CosyVoice TTS service"
