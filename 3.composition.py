@@ -1,7 +1,9 @@
 import os
 import argparse
 import math
-from src.utils import load_config, load_scenes_from_json, save_scenes_to_json, check_llm_providers
+import bootstrap
+from src.config_loader import config
+from src.utils import load_scenes_from_json, save_scenes_to_json, check_llm_providers
 from tqdm import tqdm
 from src.core.asset_manager import AssetManager
 from src.core.video_composer import VideoComposer
@@ -66,7 +68,7 @@ def main(task_id: str, audio_file: str, subtitle_option: str | bool | None):
     """
     print_info(f"\n--- 阶段二: 从任务 {task_id} 创建视频 ---")
 
-    config = load_config()
+    check_llm_providers(config.data)
 
     # 在执行任何操作前，检查Ollama服务
     # 因为AssetManager可能会调用Ollama来生成新的关键词

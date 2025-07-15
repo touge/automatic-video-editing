@@ -1,15 +1,14 @@
 import os
 from fastapi import HTTPException, Security, Depends, status
 from fastapi.security.api_key import APIKeyHeader
-from src.utils import load_config
+import bootstrap
+from src.config_loader import config
 
 def get_api_key() -> str:
     """
     从配置文件读取 API 密钥
     """
-    config_path = os.getenv("CONFIG_PATH", "config.yaml")
-    config = load_config(config_path)
-    return config.get("api_server", {}).get("secret_key", "")
+    return config.get("api_server.secret_key", "")
 
 # 客户端在请求头 X-API-Key 中传递密钥
 API_KEY_NAME   = "X-API-Key"

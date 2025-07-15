@@ -1,18 +1,37 @@
-PyYAML
-requests
-ffmpeg-python
-ollama
-google-generativeai
-openai-whisper
-colorama
-rich
-openai
-
 # API Server
 fastapi
 uvicorn[standard]
-tqdm
 python-multipart
+
+# For audio transcription
+faster-whisper
+openai-whisper
+
+# For sentence embeddings and semantic search
+sentence-transformers
+optimum[onnxruntime]
 scikit-learn
 
-py3-aeneas
+# For Traditional to Simplified Chinese conversion
+opencc-python-reimplemented
+
+# For Chinese number to Arabic number conversion
+cn2an
+
+# For fuzzy string matching in alignment
+thefuzz
+
+# For progress bars
+tqdm
+
+# For parsing YAML configuration files
+PyYAML
+
+# Other
+requests
+ollama
+google-generativeai
+openai
+colorama
+rich
+pydub

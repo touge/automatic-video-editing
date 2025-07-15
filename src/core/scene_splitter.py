@@ -18,12 +18,11 @@ class SceneSplitter:
         self.task_id = task_id
         
         # 使用 LlmManager 获取 LLM provider
-        llm_manager = LlmManager(config)
-        self.llm_provider = llm_manager.default
-        if not self.llm_provider:
-            raise ValueError("No default LLM provider is available. Please check your config.yaml.")
+        self.llm_manager = LlmManager(config)
+        if not self.llm_manager.ordered_providers:
+            raise ValueError("No LLM providers are available. Please check your config.yaml.")
         
-        log.info(f"SceneSplitter is using LLM provider: '{self.llm_provider.name}'")
+        log.info("SceneSplitter initialized.")
 
         # 从配置中加载提示词模板
         prompts_config = self.config.get('prompts', {})
@@ -48,7 +47,7 @@ class SceneSplitter:
 
         prompt = self.prompt_template.format(numbered_text=numbered_text)
         try:
-            content = self.llm_provider.chat(
+            content = self.llm_manager.chat_with_failover(
                 messages=[{'role': 'user', 'content': prompt}],
                 temperature=0.0 # 使用低温以获得更确定的结果
             )
@@ -57,7 +56,7 @@ class SceneSplitter:
             split_points = sorted(list(set(raw_points))) # 去重并排序
             return split_points
         except Exception as e:
-            log.error(f"调用LLM provider '{self.llm_provider.name}' 进行场景分割时出错: {e}. 该区块将不会被分割。", exc_info=True)
+            log.error(f"Failed to split scene: {e}. This chunk will not be split.", exc_info=True)
             return []
 
     def _construct_scenes_for_chunk(self, chunk_segments: list, split_points: list) -> list:

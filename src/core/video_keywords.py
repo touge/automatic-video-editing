@@ -44,12 +44,11 @@ def dedupe_and_fill(keywords, target=3, threshold=0.6, fallback=None):
 class VideoKeywordService:
     def __init__(self, config):
         self.config = config
-        llm_manager = LlmManager(config)
-        self.llm_provider = llm_manager.default
-        if not self.llm_provider:
-            raise ValueError("No default LLM provider is available for VideoKeywordService.")
+        self.llm_manager = LlmManager(config)
+        if not self.llm_manager.ordered_providers:
+            raise ValueError("No LLM providers are available for VideoKeywordService.")
         
-        log.info(f"VideoKeywordService is using LLM provider: '{self.llm_provider.name}'")
+        log.info("VideoKeywordService initialized.")
 
         prompts = config['prompts']['asset_keyword_generator']
         self.system_prompt = prompts['system']
@@ -61,7 +60,7 @@ class VideoKeywordService:
 
         # 2. 调用 LLM Provider 得到原始答案
         try:
-            response_text = self.llm_provider.chat(
+            response_text = self.llm_manager.chat_with_failover(
                 messages=[
                     {'role': 'system', 'content': self.system_prompt},
                     {'role': 'user', 'content': user_prompt}
@@ -69,7 +68,7 @@ class VideoKeywordService:
             )
             data = json.loads(response_text)
         except Exception as e:
-            log.error(f"调用 LLM provider '{self.llm_provider.name}' 生成关键词时出错: {e}", exc_info=True)
+            log.error(f"Failed to generate keywords: {e}", exc_info=True)
             data = {}
 
         # 3. 用去重+补齐函数处理英文和中文关键词

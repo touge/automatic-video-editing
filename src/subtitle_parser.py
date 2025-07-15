@@ -35,5 +35,5 @@ def parse_srt_file(srt_path: str) -> list:
         }
         segments.append(segment)
         
-    # print(f"解析完成，共找到: {len(segments)} 个字幕片段。")
+    print(f"解析完成，共找到: {len(segments)} 个字幕片段。")
     return segments

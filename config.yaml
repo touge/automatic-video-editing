@@ -21,25 +21,39 @@ pixabay:
   api_key: "51157807-3d36b78ae5b3cdfd0b119a2eb"
 
 llm_providers:
-  default: "siliconflow"  # 当前默认使用哪个服务
+  default: "ollama"  # 当前默认使用哪个服务
 
   ollama:
-    enabled: true
-    model: "qwen3:14b-q8_0"
+    enabled: false
+    models:
+      - "qwen3:14b-q8_0"
     host: "http://127.0.0.1:11434"
     remark: "本地模型服务，适用于关键词提取和场景分割"
-
-  gemini:
-    enabled: true
-    api_key: "AIzaSyDsbWrQDdO6wqvUyGfEdJxKU6FXTs6aQNQ"
-    remark: "Google Gemini，用作备用关键词提取方案"
 
   siliconflow:
     enabled: true
     api_key: "sk-pvracxuykfnajymvqjyxxfmqiwfmqchlsasekahpilkysiiq"  # 请替换为您的 API Key
-    model: "Qwen/Qwen3-14B" # 默认模型，可以根据需要修改
+    models:
+      - "Qwen/Qwen3-14B"
     host: "https://api.siliconflow.cn/v1"
     remark: "硅基流动, 用于生成视频脚本和关键词"
+
+  gemini:
+    enabled: false
+    api_key: "AIzaSyDsbWrQDdO6wqvUyGfEdJxKU6FXTs6aQNQ"
+    models:
+      - "gemini-1.5-pro-latest"
+    remark: "Google Gemini，用作备用关键词提取方案"
+
+  openai:
+    enabled: true
+    api_key: "gemini-litouge"
+    base_url: "https://zwlxneivrfjr.us-east-1.clawcloudrun.com/v1" # or your custom endpoint
+    models:
+      - "gemini-2.5-pro"
+      - "gemini-2.5-flash"
+      - "gemini-1.5-pro"
+    remark: "OpenAI, for high-quality text generation"
 
 api_server:
   # 请修改为一个更长、更随机的安全密钥，例如通过密码管理器生成
@@ -81,11 +95,19 @@ video:
     alignment: 2
     # 垂直边距 (像素)。对于底部对齐，这是字幕距离视频底部的距离。增加此值可将字幕向上推。
     vertical_margin: 30
+
 # File Paths
 # ----------
 paths:
   # 你的本地视频素材库，下载的素材也会保存在这里。
-  local_assets_dir: "assets/local"
+  local_assets_dir: "storage/local"
+  # 本地模型配置
+  local_models: 
+    base_path: "models"
+    whisper: "whisper/faster-whisper-medium"
+    sentence_transformer: 
+      use_onnx: true
+      path: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2-onnx"
 
 # Asset Search Strategy
 # ---------------------
@@ -126,97 +148,33 @@ scene_detection:
 # 用于指导大语言模型完成特定任务的提示词模板。
 prompts:
   # 用于场景分割 (Stage 1)
-  scene_splitter: |
-    You are an expert in video editing. Your task is to analyze a script with numbered lines and identify the natural break points where a scene should change. A scene change can be indicated by a shift in topic, location, time, or emotional tone.
-    Your response MUST be a comma-separated list of the line numbers that mark the END of each scene.
-    For example, if the scenes end at lines 4, 8, and 12, your output should be "4, 8, 12".
-    Do not include any other text, explanations, or formatting.
+  scene_splitter: "assets/prompts/scene_splitter.md"
 
-    Here is the script chunk:
-    ---
-    {numbered_text}
-    ---
-
-  # 用于为场景生成关键词 (Stage 1)
-  # keyword_generator: |
-  #   You are a creative director and shot-list creator for video production.
-  #   Based on the scene description, your task is to:
-  #   1.  Add appropriate punctuation to the original text to make it a natural, readable sentence.
-  #   2.  Create a list of **up to 3** English keywords, suitable for searching stock video footage. These should be concrete, visual, and action-oriented. **The keywords must be sorted by relevance, with the most important one first.**
-  #   3.  Create a list of **up to 3** Chinese keywords that describe a sequence of shots, like a storyboard. **The keywords must be sorted by relevance, with the most important one first.**
-
-  #   You MUST return your response as a single, valid JSON object. Do not include any other text or explanations.
-
-  #   **Example:**
-  #   Scene Description: "一个24岁的中国女孩远赴意大利与父母团聚在异国他乡勤劳打拼"
-  #   Your JSON Response:
-  #   {{
-  #     "punctuated_text": "一个24岁的中国女孩，远赴意大利与父母团聚，在异国他乡勤劳打拼。",
-  #     "keywords_en": ["woman on airplane", "family hug at airport", "working hard abroad"],
-  #     "keywords_cn": ["一个女人坐飞机", "父母机场接机", "在异国努力工作"]
-  #   }}
-
-  #   Now, process the following scene.
-
-  #   Scene Description: "{scene_text}"
-
-  #   Your JSON Response:
-  keyword_generator: |
-    You are a creative director and shot-list creator for health & wellness video production.
-    Use the following weighted keyword categories as a guide when generating stock-footage search terms:
-      • 20% 症状与病因 (symptom & cause)
-      • 20% 食材与营养 (ingredient & nutrition)
-      • 15% 运动与体式 (exercise & posture)
-      • 10% 日常习惯 (daily habits)
-      • 10% 心理调节 (mental regulation)
-      • 10% 治疗与预防 (treatment & prevention)
-      • 5%  数据与案例 (data & case examples)
-      • 10% 专家建议 (expert advice)
-
-    Based on the scene description, your task is:
-    1. Add appropriate punctuation to the original text to make it a natural, readable sentence.
-
-    2. Create a list of up to **6** English keywords for stock-footage searches.
-      - Keywords must be concrete, visual, action-oriented.
-      - Keywords must be mutually distinct (no same-core-concept or simple synonym).
-      - Sort by relevance (highest first).
-      - From these 6, select the top **3** unique keywords (highest relevance first).
-
-    3. Create a list of up to **6** Chinese keywords that describe a sequence of shots (storyboard style).
-      - Keywords must be concrete, visual, action-oriented.
-      - Keywords must be mutually distinct (no same-core-concept or simple synonym).
-      - Sort by relevance (highest first).
-      - From these 6, select the top **3** unique keywords (highest relevance first).
-
-    You MUST return your response as a single, valid JSON object. Do not include any other text or explanations.
-
-    Example:
-    Scene Description: "一位45岁的上班族女性每天坚持晨跑5公里，以提升体能和减压"
-    Your JSON Response:
-    {{
-      "punctuated_text": "一位45岁的上班族女性，每天坚持晨跑5公里，以提升体能和减压。",
-      "keywords_en": ["morning jogging", "urban runner", "stress relief exercise"],
-      "keywords_cn": ["上班族女性晨跑", "城市慢跑", "减压运动"]
-    }}
-
-    Now, process the following scene.
-
-    Scene Description: "{scene_text}"
-
-    Your JSON Response:
+  keyword_generator: "assets/prompts/keyword_generator.md"
 
 
   # 用于在素材搜索失败后生成新的关键词 (Stage 2 retry)
-  asset_keyword_generator:
-    system: |
-      You are an AI assistant that helps find stock video footage. Your task is to generate new, diverse, and specific English keywords based on a scene description and a list of keywords that have already been tried and failed.
-      The new keywords should be concrete, visual, and describe actions, objects, or moods.
-      Your response MUST be a comma-separated list of 3-5 new keywords. Do not include any of the already tried keywords. Do not include any other text, explanations, or formatting.
-    user: |
-      The following keywords have already been tried and failed: {existing_keywords}
-      Generate new, different keywords for this scene: "{scene_text}"
+  asset_keyword_generator: "assets/prompts/asset_keyword_generator.md"
 
 # General Settings
 # ----------------
 # 设置为 true 以在视频合成时启用详细的 ffmpeg 日志，便于排查问题。
 debug: false
+
+# Logging configuration.
+logging:
+  # Log level can be DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+  format: "%(asctime)s - %(levelname)s - %(message)s"
+
+# TTS (Text-to-Speech) Services
+# -----------------------------
+tts_providers:
+  default: "cosyvoice"  # Default TTS provider
+
+  cosyvoice:
+    enabled: true
+    base_endpoint: "http://192.168.0.253:8002"
+    api_key: "123456" # Optional, if your service requires an API key
+    default_speaker: "台湾-中年医生-男"
+    remark: "CosyVoice TTS service"

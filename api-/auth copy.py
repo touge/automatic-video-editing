@@ -1,14 +1,14 @@
 from fastapi import Security, HTTPException, status
 from fastapi.security import APIKeyHeader
 
-from src.utils import load_config
+import bootstrap
+from src.config_loader import config
 
 API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 def get_api_key() -> str:
     """从配置加载API密钥"""
-    config = load_config()
-    return config.get('api_server', {}).get('secret_key', '')
+    return config.get("api_server.secret_key", "")
 
 def verify_api_key(api_key: str = Security(API_KEY_HEADER)):
     """FastAPI依赖项，用于验证API密钥"""

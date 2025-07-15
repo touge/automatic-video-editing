@@ -24,12 +24,11 @@ def _parse_llm_json_response(raw_text: str) -> dict | None:
 
 class KeywordGenerator:
     def __init__(self, config: dict):
-        llm_manager = LlmManager(config)
-        self.llm_provider = llm_manager.default
-        if not self.llm_provider:
-            raise ValueError("No default LLM provider is available for KeywordGenerator. Please check your config.yaml.")
+        self.llm_manager = LlmManager(config)
+        if not self.llm_manager.ordered_providers:
+            raise ValueError("No LLM providers are available for KeywordGenerator. Please check your config.yaml.")
         
-        log.info(f"KeywordGenerator is using LLM provider: '{self.llm_provider.name}'")
+        log.info("KeywordGenerator initialized.")
         
         self.prompt_template = config.get('prompts', {}).get('keyword_generator')
         if not self.prompt_template:
@@ -39,7 +38,7 @@ class KeywordGenerator:
         for scene in scenes:
             try:
                 prompt = self.prompt_template.format(scene_text=scene["text"])
-                response_text = self.llm_provider.generate(prompt)
+                response_text = self.llm_manager.generate_with_failover(prompt)
                 parsed_data = _parse_llm_json_response(response_text)
                 if parsed_data:
                     scene.pop('keywords', None) # 移除旧的、空的keywords字段
@@ -50,7 +49,7 @@ class KeywordGenerator:
                     scene['keywords_en'] = []
                     scene['keywords_cn'] = []
             except Exception as e:
-                log.error(f"调用 LLM provider '{self.llm_provider.name}' 失败，场景: \"{scene['text'][:30]}...\"。", exc_info=True)
+                log.error(f"Failed to generate keywords for scene: \"{scene['text'][:30]}...\"。", exc_info=True)
                 scene['keywords_en'] = []
                 scene['keywords_cn'] = []
         return scenes

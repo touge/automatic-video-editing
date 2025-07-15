@@ -67,6 +67,10 @@ class AssetManager:
         self.db_manager = DatabaseManager()
         os.makedirs(self.local_assets_path, exist_ok=True)
 
+        # --- 全局已用素材跟踪 ---
+        self.used_source_ids: Set[str] = set()
+        self.used_local_paths: Set[str] = set()
+
         # --- 初始化所有可用的视频提供者 ---
         self.video_providers: List[BaseVideoProvider] = []
         
@@ -84,11 +88,10 @@ class AssetManager:
             print_success("Pixabay 提供者已启用。")
             self.video_providers.append(PixabayProvider(self.config))
 
-        llm_manager = LlmManager(config)
-        self.llm_provider = llm_manager.default
-        if not self.llm_provider:
-            raise ValueError("No default LLM provider is available for AssetManager. Please check your config.yaml.")
-        log.info(f"AssetManager is using LLM provider for keyword generation: '{self.llm_provider.name}'")
+        self.llm_manager = LlmManager(config)
+        if not self.llm_manager.ordered_providers:
+            raise ValueError("No LLM providers are available for AssetManager. Please check your config.yaml.")
+        log.info("AssetManager initialized for keyword generation.")
 
         # 从配置中加载素材关键词生成提示词
         prompts_config = self.config.get('prompts', {})
@@ -170,7 +173,7 @@ class AssetManager:
         
         try:
             # 2. 调用 Ollama Chat 接口
-            content = self.llm_provider.chat(
+            content = self.llm_manager.chat_with_failover(
                 messages=[
                     {'role': 'system', 'content': self.asset_system_prompt},
                     {'role': 'user',   'content': user_prompt}
@@ -208,7 +211,7 @@ class AssetManager:
             return enriched
     
         except Exception as e:
-            log.warning(f"调用 LLM provider '{self.llm_provider.name}' 生成关键词时出错: {e}", exc_info=True)
+            log.warning(f"Failed to generate keywords with LLM provider: {e}", exc_info=True)
             # 失败时直接返回 fallback（去重）
             return dedupe_and_fill(
                 [],
@@ -313,15 +316,13 @@ class AssetManager:
             return []
     
         found_paths: List[str] = []
-        used_source_ids: Set[str] = set()  # 跟踪在线素材的ID，避免重复下载
-        used_local_paths: Set[str] = set() # 跟踪本地素材的路径，避免重复使用
     
         for i in range(num_to_find):
             # 按顺序循环使用关键词
             keyword_for_this_shot = [keywords[i % len(keywords)]]
             print_info(f"    - 正在为片段 {i+1}/{num_to_find} 搜索，关键词: '{keyword_for_this_shot[0]}'")
             
-            asset_path = self._find_one_asset(keyword_for_this_shot, used_source_ids, used_local_paths)
+            asset_path = self._find_one_asset(keyword_for_this_shot)
     
             if asset_path:
                 found_paths.append(asset_path)
@@ -330,33 +331,33 @@ class AssetManager:
         
         return found_paths
     
-    def _find_one_asset(self, keyword: List[str], used_source_ids: Set[str], used_local_paths: Set[str]) -> str | None:
+    def _find_one_asset(self, keyword: List[str]) -> str | None:
         """
         为单个关键词查找一个素材，优先本地，其次在线。
-        此函数会更新 used_source_ids 和 used_local_paths 以避免重复。
+        此函数会更新 self.used_source_ids 和 self.used_local_paths 以避免重复。
         """
         # 1. 在本地数据库中搜索
         local_candidates = self.db_manager.find_assets_by_keywords(keyword, limit=5)
         for path in local_candidates:
-            if path not in used_local_paths:
+            if path not in self.used_local_paths:
                 print_info(f"      -> 在本地数据库找到: {os.path.basename(path)}")
-                used_local_paths.add(path)
+                self.used_local_paths.add(path)
                 return path
     
         # 2. 如果本地没有，则在线搜索
         print_info(f"      -> 本地未找到，转为在线搜索...")
-        video_info = self._search_online_for_one(keyword, used_source_ids)
+        video_info = self._search_online_for_one(keyword)
         if video_info:
             # 下载并注册（此函数内部会再次检查数据库，这是安全的）
             path = self._download_and_register(video_info, keyword)
             if path:
-                used_source_ids.add(video_info['id'])
-                used_local_paths.add(path) # 确保新下载的素材不会在同一场景中被再次选中
+                self.used_source_ids.add(video_info['id'])
+                self.used_local_paths.add(path) # 确保新下载的素材不会在同一场景中被再次选中
                 return path
         
         return None
     
-    def _search_online_for_one(self, keywords: List[str], used_source_ids: Set[str]) -> Dict[str, Any] | None:
+    def _search_online_for_one(self, keywords: List[str]) -> Dict[str, Any] | None:
         """使用所有提供者在线搜索一个未被使用过的素材。"""
         if not self.video_providers:
             return None
@@ -397,7 +398,7 @@ class AssetManager:
     
             # 找到第一个尚未在本场景中使用的视频
             for video_info in video_results:
-                if video_info['id'] not in used_source_ids:
+                if video_info['id'] not in self.used_source_ids:
                     print_success(f"        -> {provider_name} 找到新素材: {video_info['id']}")
                     return video_info
             

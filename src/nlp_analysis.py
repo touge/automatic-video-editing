@@ -64,21 +64,20 @@ def extract_keywords_from_scenes(scenes: list, config: dict) -> list:
     :return: 更新了关键词的场景列表。
     """
     llm_manager = LlmManager(config)
-    llm_provider = llm_manager.default
 
-    if not llm_provider:
+    if not llm_manager.ordered_providers:
         log.error("没有可用的LLM提供者。请检查config.yaml中的'llm_providers'配置。将跳过关键词提取。")
         for scene in scenes:
             scene['keywords_en'] = []
             scene['keywords_cn'] = []
         return scenes
 
-    print_info(f"正在使用 LLM provider '{llm_provider.name}' 提取关键词...")
+    print_info("正在提取关键词...")
 
     for scene in scenes:
         try:
             prompt = PROMPT_TEMPLATE.format(scene_text=scene["text"])
-            response_text = llm_provider.generate(prompt)
+            response_text = llm_manager.generate_with_failover(prompt)
             parsed_data = _parse_llm_json_response(response_text)
             
             if parsed_data:
@@ -91,7 +90,7 @@ def extract_keywords_from_scenes(scenes: list, config: dict) -> list:
                 scene['keywords_en'] = []
                 scene['keywords_cn'] = []
         except Exception as e:
-            log.error(f"调用 LLM provider '{llm_provider.name}' 失败，场景: \"%s...\"。", scene['text'][:30], exc_info=True)
+            log.error(f"调用 LLM provider 失败，场景: \"%s...\"。", scene['text'][:30], exc_info=True)
             scene['keywords_en'] = []
             scene['keywords_cn'] = []
             
