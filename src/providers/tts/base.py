@@ -15,12 +15,13 @@ class BaseTtsProvider(ABC):
         self.config = config
 
     @abstractmethod
-    def synthesize(self, text: str, **kwargs) -> Dict:
+    def synthesize(self, text: str, task_id: str, **kwargs) -> Dict:
         """
         根据给定的文本合成语音。
         :param text: 要合成的文本。
+        :param task_id: 当前任务的ID，用于管理文件路径。
         :param kwargs: 特定于提供者的其他参数。
-        :return: 包含音频URL或其他相关信息的字典。
+        :return: 包含音频URL或本地路径的字典。
         """
         pass
 

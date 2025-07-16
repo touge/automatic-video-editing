@@ -15,6 +15,7 @@ class TaskManager:
         "final_audio": "final_audio.wav",
         "original_doc": ".documents/original.txt",
         "audio_segment": ".audios/segments/{index}.wav",
+        "tts_audio": ".audios/tts_cache/{name}.wav",
         "doc_segment": ".documents/segments/{index}.txt",
         # Subtitles
         "final_srt": "final.srt",

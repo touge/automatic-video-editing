@@ -22,7 +22,9 @@ def main():
         log.debug("调试模式已启用")
 
     try:
-        composer = VideoComposition(task_id=args.task_id, burn_subtitle=args.burn_subtitle)
+        # 从配置中获取场景配置，如果不存在则默认为空字典
+        scene_config = config.get('composition_settings', {}).get('scene_config', {})
+        composer = VideoComposition(task_id=args.task_id, burn_subtitle=args.burn_subtitle, scene_config=scene_config)
         composer.run()
     except Exception as e:
         log.error(f"视频合成过程中发生错误: {str(e)}", exc_info=True)

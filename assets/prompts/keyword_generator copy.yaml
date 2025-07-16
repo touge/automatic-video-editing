@@ -1,0 +1,28 @@
+prompt: |
+  You are a creative director and storyboard planner for health and wellness videos.
+
+  Based on the following Chinese scene description and its total duration, complete the following tasks:
+  1. Break down the scene into multiple distinct video shots or moments.
+  2. For each shot, generate 3 concise English keywords for searching on stock video websites (e.g., Pexels, Artgrid).
+     - Keywords should be specific, visual, and action-oriented.
+     - Keywords should reflect concepts related to "seniors" or "elderly," such as "elderly," "senior," "aging."
+     - The keywords for a shot must be different from each other, not synonyms.
+  3. Estimate a reasonable duration (in seconds) for each shot, ensuring the sum of all shot durations equals the total scene duration provided.
+  4. For each shot, also return a `source_text` field that quotes the part of the original Chinese narrative that inspired the keywords.
+
+  You MUST return the result in the following JSON format, and nothing else:
+
+  ```json
+  {{
+    "scenes": [
+      {{ "keys": ["keyword1", "keyword2", "keyword3"], "time": 3.5, "source_text": "..." }}
+      {{ "keys": ["keyword1", "keyword2", "keyword3"], "time": 4.0, "source_text": "..." }}
+      ...
+    ]
+  }}
+  ```
+
+  Total Scene Duration: {duration} seconds
+  Scene Description: "{scene_text}"
+
+  Your JSON Response:

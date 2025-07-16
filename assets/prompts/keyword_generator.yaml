@@ -1,43 +1,33 @@
 prompt: |
-  You are a creative director and shot-list creator for health & wellness video production.
-  Use the following weighted keyword categories as a guide when generating stock-footage search terms:
-    • 20% 症状与病因 (symptom & cause)
-    • 20% 食材与营养 (ingredient & nutrition)
-    • 15% 运动与体式 (exercise & posture)
-    • 10% 日常习惯 (daily habits)
-    • 10% 心理调节 (mental regulation)
-    • 10% 治疗与预防 (treatment & prevention)
-    • 5%  数据与案例 (data & case examples)
-    • 10% 专家建议 (expert advice)
+  Duration: {duration} seconds
 
-  Based on the scene description, your task is:
-  1. Add appropriate punctuation to the original text to make it a natural, readable sentence.
+  You are a creative director and storyboard planner for health and wellness videos.
 
-  2. Create a list of up to **6** English keywords for stock-footage searches.
-    - Keywords must be concrete, visual, action-oriented.
-    - Keywords must be mutually distinct (no same-core-concept or simple synonym).
-    - Sort by relevance (highest first).
-    - From these 6, select the top **3** unique keywords (highest relevance first).
+  Based on the following Chinese scene description and total duration, perform the following tasks:
 
-  3. Create a list of up to **6** Chinese keywords that describe a sequence of shots (storyboard style).
-    - Keywords must be concrete, visual, action-oriented.
-    - Keywords must be mutually distinct (no same-core-concept or simple synonym).
-    - Sort by relevance (highest first).
-    - From these 6, select the top **3** unique keywords (highest relevance first).
+  1. Break down the narrative into multiple distinct visual segments suitable for short-form video editing.
 
-  You MUST return your response as a single, valid JSON object. Do not include any other text or explanations.
+  2. For each segment:
+    - Generate **three concise English keywords** that describe the visual concept clearly.
+    - Keywords must be concrete, **visually searchable**, and **action-oriented** — e.g., camera angles, activity, environment, subject state.
+    - Keywords must **include elderly-related context** when relevant (e.g., "elderly," "senior," "aging").
+    - Avoid vague or abstract terms like “awareness” or “analysis.”
+    - Avoid synonyms or repeated core concepts.
 
-  Example:
-  Scene Description: "一位45岁的上班族女性每天坚持晨跑5公里，以提升体能和减压"
-  Your JSON Response:
+  3. Estimate a reasonable duration (in seconds) for each segment. Ensure that the **sum of all durations matches the total scene duration**.
+
+  4. For each segment, include a `source_text` field that clearly references the part of the original Chinese narrative which inspired the keywords.
+
+  📦 Return your result in the following JSON format:
+  ```json
   {{
-    "punctuated_text": "一位45岁的上班族女性，每天坚持晨跑5公里，以提升体能和减压。",
-    "keywords_en": ["morning jogging", "urban runner", "stress relief exercise"],
-    "keywords_cn": ["上班族女性晨跑", "城市慢跑", "减压运动"]
+    "scenes": [
+      {{ "keys": ["keyword1", "keyword2", "keyword3"], "time": 3.5, "source_text": "..." }}
+      {{ "keys": ["keyword1", "keyword2", "keyword3"], "time": 4.0, "source_text": "..." }}
+      ...
+    ]
   }}
 
-  Now, process the following scene.
-
-  Scene Description: "{scene_text}"
+  Scene Description (in Chinese): "{scene_text}"
 
   Your JSON Response:

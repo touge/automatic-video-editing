@@ -38,4 +38,3 @@ pydub
 optimum[onnxruntime]
 cn2an
 thefuzz
-llama-cpp-python

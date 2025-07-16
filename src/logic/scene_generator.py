@@ -1,10 +1,10 @@
 import os
+import re
 import json
 from tqdm import tqdm
 from pathlib import Path
 
 from src.config_loader import config
-from src.subtitle_parser import parse_srt_file
 from src.core.scene_splitter import SceneSplitter
 from src.keyword_generator import KeywordGenerator
 from src.logger import log
@@ -88,15 +88,52 @@ class SceneGenerator:
         log.success("Keyword generation complete.")
         return scenes
 
+    def _srt_time_to_seconds(self, time_str: str) -> float:
+        """将SRT时间格式 (HH:MM:SS,ms) 转换为秒"""
+        parts = re.split(r'[:,]', time_str)
+        return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2]) + int(parts[3]) / 1000
+
+    def _parse_srt_file(self, srt_path: str) -> list:
+        """
+        解析SRT字幕文件。
+        :param srt_path: SRT文件路径
+        :return: 一个包含字幕段落的列表，格式与Whisper输出兼容。
+        """
+        # print(f"正在解析SRT文件: {srt_path}")
+        segments = []
+        try:
+            with open(srt_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except FileNotFoundError:
+            log.error(f"字幕文件未找到 at {srt_path}")
+            return []
+        
+        # 使用正则表达式匹配SRT块
+        srt_blocks = re.finditer(
+            r'\d+\n(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})\n([\s\S]*?)(?=\n\n|\Z)',
+            content
+        )
+        
+        for block in srt_blocks:
+            segment = {
+                "start": self._srt_time_to_seconds(block.group(1)),
+                "end": self._srt_time_to_seconds(block.group(2)),
+                "text": block.group(3).strip().replace('\n', '')
+            }
+            segments.append(segment)
+            
+        print(f"解析完成，共找到: {len(segments)} 个字幕片段。")
+        return segments
+
     def _parse_srt(self) -> list:
-        log.info("\n--- Step 1: Parsing SRT file ---")
+        log.info("--- Step 1: Parsing SRT file ---")
         segments_cache_path = self.task_manager.get_file_path('segments_cache')
         if os.path.exists(segments_cache_path):
             log.info(f"Found cache, loading segments from {Path(segments_cache_path).name}...")
             with open(segments_cache_path, 'r', encoding='utf-8') as f:
                 return json.load(f)
         
-        segments = parse_srt_file(self.task_manager.get_file_path('final_srt'))
+        segments = self._parse_srt_file(self.task_manager.get_file_path('final_srt'))
         if not segments:
             log.error("Failed to parse any segments from the SRT file.")
             return []
@@ -107,59 +144,35 @@ class SceneGenerator:
         return segments
 
     def _split_scenes(self, segments: list) -> list:
-        log.info("\n--- Step 2: Splitting segments into scenes ---")
+        log.info("--- Step 2: Splitting segments into scenes ---")
+
+        # 获取“原始场景缓存”文件的完整路径
         scenes_raw_cache_path = self.task_manager.get_file_path('scenes_raw_cache')
+
+        # 如果缓存文件已存在，就直接读取并返回缓存的场景列表
         if os.path.exists(scenes_raw_cache_path):
             log.info(f"Found cache, loading raw scenes from {Path(scenes_raw_cache_path).name}...")
             with open(scenes_raw_cache_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                return json.load(f)  # 从 JSON 文件中加载并返回场景列表
 
+        # 实例化 SceneSplitter，用于 AI 切分；传入全局配置和当前任务 ID
         splitter = SceneSplitter(config, self.task_manager.task_id)
+
+        # 调用 split 方法对输入片段进行场景切分
         initial_scenes = splitter.split(segments)
 
+        # 如果切分结果为空，说明 AI 切分失败，记录错误并返回空列表
         if not initial_scenes:
-            log.error("AI failed to split scenes.")
+            log.error("AI failed to split scenes.")  # 日志错误
             return []
-        
-        log.success(f"AI initially split into {len(initial_scenes)} scenes.")
-        log.info("Post-processing scenes to optimize duration...")
-        
-        min_duration = config.get("video.min_clip_duration", 3.0)
-        max_duration = config.get("video.max_clip_duration", 8.0) * 2.5
-        
-        processed_scenes = self._post_process_scenes(initial_scenes, min_duration, max_duration)
-        log.success(f"Post-processing complete. Final scene count: {len(processed_scenes)}.")
 
+        # 成功切分，记录初次切分出的场景数量
+        log.success(f"AI initially split into {len(initial_scenes)} scenes.")
+
+        # 将最终结果缓存到文件，方便下次直接加载
         log.info(f"Caching processed scenes to {Path(scenes_raw_cache_path).name}...")
         with open(scenes_raw_cache_path, 'w', encoding='utf-8') as f:
-            json.dump(processed_scenes, f, ensure_ascii=False, indent=4)
-        
-        return processed_scenes
+            json.dump(initial_scenes, f, ensure_ascii=False, indent=4)  # 格式化写入 JSON
 
-    def _post_process_scenes(self, scenes: list, min_duration: float, max_duration: float) -> list:
-        merged_scenes = []
-        buffer = None
-        for scene in scenes:
-            if buffer is None:
-                buffer = scene.copy()
-                continue
-            if buffer['duration'] < min_duration:
-                buffer['text'] += f" {scene['text']}"
-                buffer['scene_end'] = scene['scene_end']
-                buffer['duration'] = buffer['scene_end'] - buffer['scene_start']
-                if 'segments' in buffer and 'segments' in scene:
-                     buffer['segments'].extend(scene['segments'])
-            else:
-                merged_scenes.append(buffer)
-                buffer = scene.copy()
-        if buffer:
-            merged_scenes.append(buffer)
-        
-        final_scenes = []
-        for scene in merged_scenes:
-            if scene['duration'] > max_duration:
-                log.warning(f"Scene is too long ({scene['duration']:.2f}s), simple split applied.")
-                final_scenes.append(scene)
-            else:
-                final_scenes.append(scene)
-        return final_scenes
+        # 返回处理并缓存完成的场景列表
+        return initial_scenes

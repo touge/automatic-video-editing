@@ -36,6 +36,7 @@ llm_providers:
     api_key: "sk-pvracxuykfnajymvqjyxxfmqiwfmqchlsasekahpilkysiiq"  # 请替换为您的 API Key
     models:
       - "Qwen/Qwen3-14B"
+      - "Qwen/Qwen3-8B"
     host: "https://api.siliconflow.cn/v1"
     remark: "硅基流动, 用于生成视频脚本和关键词"
 
@@ -47,7 +48,7 @@ llm_providers:
     remark: "Google Gemini，用作备用关键词提取方案"
 
   openai:
-    enabled: true
+    enabled: false
     api_key: "gemini-litouge"
     base_url: "https://zwlxneivrfjr.us-east-1.clawcloudrun.com/v1" # or your custom endpoint
     models:
@@ -55,34 +56,6 @@ llm_providers:
       - "gemini-2.5-flash"
       - "gemini-1.5-pro"
     remark: "OpenAI, for high-quality text generation"
-
-llm:
-  llama_cpp:
-    enabled: true
-    model_dir: "models/gguf"
-    default_model: "qwen3-14b"
-    models:
-      - name: "qwen3-14b"
-        path: "Qwen3-14B-Q4_K_M.gguf"
-        n_ctx: 16384            # 增加上下文窗口，提升长文本处理能力
-        n_gpu_layers: -1        # RTX 4090全量加载
-        n_threads: 16           # 增加线程数提升CPU性能
-        n_batch: 512           # 新增批处理大小参数
-        temperature: 0.8       # 略微提高创造性
-        top_p: 0.9            # 稍微降低以增加输出的确定性
-        repeat_penalty: 1.1    # 新增重复惩罚因子
-        top_k: 40             # 新增 top-k 采样参数
-      
-      - name: "qwen3-8b"
-        path: "Qwen3-8B-Q4_K_M.gguf"
-        n_ctx: 8192            # 8B版本也可以用更大上下文
-        n_gpu_layers: -1       # RTX 4090同样可以全量加载
-        n_threads: 12          # 适中的线程数
-        n_batch: 1024         # 较大的批处理大小
-        temperature: 0.7      # 保持默认温度
-        top_p: 0.95          # 保持较高的采样概率
-        repeat_penalty: 1.05  # 较轻的重复惩罚
-        top_k: 50            # 更大的采样范围
 
 api_server:
   # 请修改为一个更长、更随机的安全密钥，例如通过密码管理器生成
@@ -94,11 +67,6 @@ video:
   width: 1920
   height: 1080
   fps: 30
-  # 单个视频片段在场景中的最大时长（秒）。
-  max_clip_duration: 8.0
-  # 单个视频片段的最小市场（秒）。
-  min_clip_duration: 3.0
-
   # 字幕样式配置 (可选)
   subtitles:
     # 包含自定义字体文件 (.ttf, .otf) 的目录的路径。
@@ -147,11 +115,11 @@ asset_search:
   online_search_count: 5
 
   # 在关键词用尽后，调用Ollama生成新关键词的最大重试次数。
-  max_keyword_retries: 2
+  max_keyword_retries: 3
 
   # (新增) 两次在线API请求之间的最小间隔时间（秒）。
   # 用于防止因请求过于频繁而被服务商限制。
-  request_delay_seconds: 1
+  request_delay_seconds: 3
 
   # 新增两组补齐关键词
   fallback_en:
@@ -182,7 +150,6 @@ prompts:
 
   keyword_generator: "assets/prompts/keyword_generator.yaml"
 
-
   # 用于在素材搜索失败后生成新的关键词 (Stage 2 retry)
   asset_keyword_generator: "assets/prompts/asset_keyword_generator.yaml"
 
@@ -208,3 +175,12 @@ tts_providers:
     api_key: "123456" # Optional, if your service requires an API key
     default_speaker: "台湾-中年医生-男"
     remark: "CosyVoice TTS service"
+
+  siliconflow:
+    enabled: false
+    api_key: "sk-htjixlgptkfgetortpskpbfwrbiyudkvbnouaufybeojjgms"
+    host: "https://api.siliconflow.cn"
+    models:
+      - "FunAudioLLM/CosyVoice2-0.5B"
+    default_speaker: "alex" # 可选: alex, anna, bella, benjamin, charles, claire, david, diana
+    remark: "SiliconFlow TTS service"

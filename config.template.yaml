@@ -48,28 +48,6 @@ llm_providers:
       - "gpt-4"
     remark: "OpenAI, for high-quality text generation"
 
-  llama_cpp:
-    enabled: true
-    model_dir: "models/llama"
-    models:
-      - name: "mistral-7b"
-        path: "mistral-7b-instruct-v0.2.Q4_K_M.gguf"
-        n_ctx: 4096
-        n_gpu_layers: -1  # -1表示自动决定
-        n_threads: 8      # CPU线程数
-      - name: "llama2-7b"
-        path: "llama-2-7b-chat.Q4_K_M.gguf"
-        n_ctx: 2048
-        n_gpu_layers: 35
-        n_threads: 4
-      - name: "codellama-7b"
-        path: "codellama-7b-instruct.Q4_K_M.gguf"
-        n_ctx: 8192
-        n_gpu_layers: -1
-        n_threads: 8
-    default_model: "mistral-7b"
-    priority: 2
-
 # API服务器配置
 api_server:
   secret_key: "CHANGE_THIS_TO_A_SECURE_KEY"  # 使用安全的随机字符串
@@ -143,9 +121,19 @@ logging:
 # TTS服务配置
 tts_providers:
   default: "cosyvoice"
+  
   cosyvoice:
     enabled: true
     base_endpoint: "YOUR_COSYVOICE_ENDPOINT"
     api_key: "YOUR_COSYVOICE_API_KEY"
     default_speaker: "台湾-中年医生-男"
     remark: "CosyVoice TTS service"
+
+  siliconflow:
+    enabled: false
+    api_key: "YOUR_SILICONFLOW_API_KEY"
+    host: "https://api.siliconflow.cn"
+    models:
+      - "FunAudioLLM/CosyVoice2-0.5B"
+    default_speaker: "alex" # 可选: alex, anna, bella, benjamin, charles, claire, david, diana
+    remark: "SiliconFlow TTS service"

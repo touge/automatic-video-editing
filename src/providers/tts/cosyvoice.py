@@ -19,9 +19,10 @@ class CosyVoiceTtsProvider(BaseTtsProvider):
         if not self.default_speaker:
             raise ValueError("CosyVoice TTS provider config must contain a 'default_speaker'.")
 
-    def synthesize(self, text: str, **kwargs) -> Dict:
+    def synthesize(self, text: str, task_id: str, **kwargs) -> Dict:
         """
         Synthesize speech using the CosyVoice TTS service.
+        The 'task_id' is ignored by this provider but required by the base class.
         """
         silent = kwargs.get('silent', False)
         full_api_url = self.base_endpoint + self.api_path

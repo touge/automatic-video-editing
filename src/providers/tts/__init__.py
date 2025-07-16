@@ -1,12 +1,14 @@
 import sys
 from .base import BaseTtsProvider
 from .cosyvoice import CosyVoiceTtsProvider
+from .siliconflow import SiliconflowTtsProvider
 from src.logger import log
 from typing import Dict, Optional, List, Any, Callable
 
 # Map provider names to their classes
 _PROVIDER_CLASSES = {
     'cosyvoice': CosyVoiceTtsProvider,
+    'siliconflow': SiliconflowTtsProvider,
 }
 
 class TtsManager:
@@ -101,7 +103,7 @@ class TtsManager:
         log.error(f"All available TTS providers failed. Last error: {last_exception}")
         sys.exit(1)
 
-    def check_availability(self) -> bool:
+    def check_availability(self, task_id: str) -> bool:
         if not self.ordered_providers:
             return False
 
@@ -110,9 +112,10 @@ class TtsManager:
             if not provider:
                 continue
             try:
-                # Silently try to synthesize
-                test_result = provider.synthesize("test", silent=True)
-                if test_result and test_result.get("url"):
+                # Silently try to synthesize, providing a task_id
+                test_result = provider.synthesize("test", task_id=task_id, silent=True)
+                # Check for either a URL or a local path
+                if test_result and (test_result.get("url") or test_result.get("path")):
                     return True
             except Exception:
                 # Ignore exceptions during check, just try the next provider

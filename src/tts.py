@@ -9,16 +9,18 @@ class TTS:
     def __init__(self):
         self.manager = TtsManager(config.data)
 
-    def synthesize(self, text: str, **kwargs) -> Dict:
+    def synthesize(self, text: str, task_id: str, **kwargs) -> Dict:
         """
         Synthesize speech using the configured TTS providers with failover.
 
         :param text: The text to synthesize.
+        :param task_id: The ID of the current task.
         :param kwargs: Additional parameters to pass to the provider, 
                        e.g., speaker="speaker_name".
         :return: A dictionary containing the result from the TTS provider.
         """
-        return self.manager.synthesize_with_failover(text, **kwargs)
+        # Pass task_id as a keyword argument to be included in **kwargs
+        return self.manager.synthesize_with_failover(text, task_id=task_id, **kwargs)
 
 # Create a global instance for easy access
 tts = TTS()

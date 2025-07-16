@@ -2,24 +2,41 @@ import json
 from src.logger import log
 from src.providers.llm import LlmManager
 
+import re
+
 def _parse_llm_json_response(raw_text: str) -> dict | None:
     """
-    从LLM的原始输出中稳健地解析出JSON对象。
-    它会找到第一个'{'和最后一个'}'来提取JSON部分，以应对模型返回多余文本的情况。
+    Robustly parses a JSON object from the LLM's raw output.
+    It first looks for a ```json ... ``` code block.
+    If not found, it falls back to finding the first '{' and last '}'.
     """
-    try:
-        start_index = raw_text.find('{')
-        end_index = raw_text.rfind('}')
-        
-        if start_index == -1 or end_index == -1 or start_index > end_index:
-            log.warning("LLM 响应中未找到有效的 JSON 对象。响应: %r",raw_text[:200] + "...")
-            return None
+    json_str = ""
+    # 1. 优先查找 ```json ... ``` 代码块
+    match = re.search(r'```json\s*([\s\S]*?)\s*```', raw_text)
+    if match:
+        json_str = match.group(1)
+    else:
+        # 2. 如果没有代码块，回退到查找第一个和最后一个大括号
+        try:
+            start_index = raw_text.find('{')
+            end_index = raw_text.rfind('}')
             
-        json_str = raw_text[start_index : end_index + 1]
+            if start_index != -1 and end_index != -1 and start_index < end_index:
+                json_str = raw_text[start_index : end_index + 1]
+            else:
+                 log.warning("No valid JSON object found in LLM response. Response: %r", raw_text[:200] + "...")
+                 return None
+        except Exception:
+             log.warning("Could not find JSON object in raw text. Response: %r", raw_text[:200] + "...")
+             return None
+
+    # 3. 尝试解析提取出的字符串
+    try:
         return json.loads(json_str)
     except json.JSONDecodeError as e:
-        log.error("解析 LLM 的 JSON 响应失败: %s", e)
-        log.debug("原始响应内容: %r", raw_text)
+        log.error("Failed to parse LLM JSON response: %s", e)
+        log.debug("Extracted JSON string for parsing: %r", json_str)
+        log.debug("Original raw response from LLM: %r", raw_text)
         return None
 
 class KeywordGenerator:
@@ -37,19 +54,20 @@ class KeywordGenerator:
     def generate_for_scenes(self, scenes: list) -> list:
         for scene in scenes:
             try:
-                prompt = self.prompt_template.format(scene_text=scene["text"])
+                prompt = self.prompt_template.format(
+                    scene_text=scene["text"], 
+                    duration=scene["duration"]
+                )
                 response_text = self.llm_manager.generate_with_failover(prompt)
                 parsed_data = _parse_llm_json_response(response_text)
-                if parsed_data:
-                    scene.pop('keywords', None) # 移除旧的、空的keywords字段
-                    scene['text'] = parsed_data.get('punctuated_text', scene['text'])
-                    scene['keywords_en'] = parsed_data.get('keywords_en', [])
-                    scene['keywords_cn'] = parsed_data.get('keywords_cn', [])
+                
+                if parsed_data and isinstance(parsed_data, dict) and 'scenes' in parsed_data:
+                    # The new logic: add a 'scenes' key containing the list of shots.
+                    scene['scenes'] = parsed_data.get('scenes', [])
                 else:
-                    scene['keywords_en'] = []
-                    scene['keywords_cn'] = []
+                    # Fallback if parsing fails or format is wrong
+                    scene['scenes'] = []
             except Exception as e:
                 log.error(f"Failed to generate keywords for scene: \"{scene['text'][:30]}...\"。", exc_info=True)
-                scene['keywords_en'] = []
-                scene['keywords_cn'] = []
+                scene['scenes'] = []
         return scenes

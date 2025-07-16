@@ -80,19 +80,25 @@ class AudioPreprocessor:
     def run(self):
         log.info(f"--- Starting Audio Preprocessing for Task ID: {self.task_manager.task_id} ---")
         
-        segments = self._process_document_for_tts()
-        if not segments: return
+        try:
+            segments = self._process_document_for_tts()
+            if not segments: return
 
-        self._synthesize_audio_segments(segments)
-        
-        final_audio_path = self.task_manager.get_file_path('final_audio')
-        if os.path.exists(final_audio_path):
-            log.info(f"Final audio already exists, skipping combination: {final_audio_path}")
-        else:
-            if not self._combine_audio_segments(len(segments), final_audio_path):
-                return
+            self._synthesize_audio_segments(segments)
+            
+            final_audio_path = self.task_manager.get_file_path('final_audio')
+            if os.path.exists(final_audio_path):
+                log.info(f"Final audio already exists, skipping combination: {final_audio_path}")
+            else:
+                if not self._combine_audio_segments(len(segments), final_audio_path):
+                    # If combination fails, we should also abort.
+                    raise RuntimeError("Failed to combine audio segments.")
 
-        self._generate_subtitles(final_audio_path)
+            self._generate_subtitles(final_audio_path)
+        except Exception as e:
+            log.error(f"Audio preprocessing pipeline failed: {e}", exc_info=True)
+            # Re-raise to ensure the main script knows about the failure.
+            raise
 
     def _download_file(self, url: str, destination: str) -> bool:
         try:
@@ -126,16 +132,30 @@ class AudioPreprocessor:
     def _synthesize_audio_segments(self, segments: List[str]):
         log.info("--- Step 2.2: Synthesizing audio for each segment ---")
         for i, segment_text in enumerate(tqdm(segments, desc="Synthesizing Audio")):
-            audio_path = self.task_manager.get_file_path('audio_segment', index=i)
-            if os.path.exists(audio_path):
+            audio_segment_path = self.task_manager.get_file_path('audio_segment', index=i)
+            if os.path.exists(audio_segment_path):
                 continue
+            
             try:
-                response = tts.synthesize(segment_text)
-                audio_url = response.get("url")
-                if not audio_url or not self._download_file(audio_url, audio_path):
-                    log.error(f"Failed to process audio for segment {i}.")
+                response = tts.synthesize(segment_text, task_id=self.task_manager.task_id)
+                
+                # 检查是返回了URL还是本地路径
+                if 'url' in response and response['url']:
+                    # 如果是URL，下载文件
+                    if not self._download_file(response['url'], audio_segment_path):
+                        log.error(f"Failed to download audio for segment {i} from URL: {response['url']}")
+                elif 'path' in response and response['path']:
+                    # 如果是本地路径，直接移动或复制文件
+                    shutil.move(response['path'], audio_segment_path)
+                    log.info(f"Moved synthesized audio for segment {i} to final location.")
+                else:
+                    log.error(f"TTS response for segment {i} is invalid: {response}")
+
             except Exception as e:
-                log.error(f"An error occurred during synthesis for segment {i}: {e}")
+                log.error(f"An error occurred during synthesis for segment {i}: {e}", exc_info=True)
+                # Re-raise the exception to halt the process
+                raise
+        
         log.success("Finished synthesizing all segments.")
 
     def _combine_audio_segments(self, num_segments: int, output_path: str) -> bool:

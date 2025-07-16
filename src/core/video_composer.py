@@ -115,6 +115,22 @@ class VideoComposer:
             f.writelines(lines)
         log.debug(f"Generated concat_list.txt content:\n{''.join(lines)}")
 
+    def _get_media_duration(self, file_path: str) -> float | None:
+        """使用 ffprobe 获取媒体文件的时长（秒）。"""
+        cmd = [
+            'ffprobe',
+            '-v', 'error',
+            '-show_entries', 'format=duration',
+            '-of', 'default=noprint_wrappers=1:nokey=1',
+            str(file_path)
+        ]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            return float(result.stdout.strip())
+        except (FileNotFoundError, CalledProcessError, ValueError) as e:
+            log.error(f"无法使用 ffprobe 获取时长: {file_path}. Error: {e}")
+            return None
+
     def _run_ffmpeg_with_progress(self, cmd: list, total_duration: float, desc: str):
         if self.debug:
             log.debug(f"Executing FFmpeg command: {' '.join(cmd)}")
@@ -182,66 +198,130 @@ class VideoComposer:
             raise
 
     def assemble_video(self, scenes: list, scene_asset_paths: list, audio_path: str, burn_subtitle: bool = False):
-        print_info("--- Starting Video Composition ---")
-        codec_info = self._detect_video_encoder()
-        all_asset_paths = [Path(p) for paths in scene_asset_paths for p in paths]
-        all_duration_parts = [dur for s in scenes for dur in s.get('duration_parts', [])]
-        total_duration = sum(all_duration_parts)
+        """组装最终视频"""
+        try:
+            log.info("--- Starting Video Composition ---")
+            
+            # 验证输入参数
+            if not scenes or not scene_asset_paths:
+                raise ValueError("No scenes or asset paths provided")
+            if len(scenes) != len(scene_asset_paths):
+                raise ValueError(f"Scenes count ({len(scenes)}) doesn't match asset paths count ({len(scene_asset_paths)})")
+                
+            # 准备视频片段
+            log.info(f"--- Preparing {len(scenes)} video segments ---")
+            segments = []
+            for i, (scene, asset_paths) in enumerate(zip(scenes, scene_asset_paths)):
+                try:
+                    # 确保至少有一个有效的资源路径
+                    if not asset_paths or not isinstance(asset_paths, list):
+                        log.error(f"Invalid asset paths for scene {i}: {asset_paths}")
+                        continue
+                        
+                    asset_path = asset_paths[0]  # 使用第一个资源
+                    if not os.path.exists(asset_path):
+                        log.error(f"Asset file not found: {asset_path}")
+                        continue
+                        
+                    # 获取场景持续时间
+                    duration = scene.get('duration', 5.0)
+                    
+                    # 创建视频片段
+                    segment = {
+                        'path': asset_path,
+                        'duration': duration,
+                        'start_time': scene.get('start_time', 0),
+                        'scene_text': scene.get('text', ''),
+                        'index': i
+                    }
+                    segments.append(segment)
+                    log.debug(f"添加片段 {i}: {asset_path} (duration: {duration}s)")
+                    
+                except Exception as e:
+                    log.error(f"处理片段 {i} 时出错: {str(e)}")
+                    continue
+                    
+            if not segments:
+                raise ValueError("No valid video segments could be prepared")
+                
+            # 处理视频片段
+            codec_info = self._detect_video_encoder()
+            all_asset_paths = [Path(p) for segment in segments for p in [segment['path']]]
+            all_duration_parts = [segment['duration'] for segment in segments]
+            total_duration = sum(all_duration_parts)
 
-        if not all_asset_paths:
-            log.error("Error: No video asset paths available.")
-            return
+            print_info(f"--- Preparing {len(all_asset_paths)} video segments ---")
+            processed_segments = []
+            for i, (src_path, duration) in enumerate(tqdm(zip(all_asset_paths, all_duration_parts), total=len(all_asset_paths), desc="Preparing Segments")):
+                dst_path = self.task_manager.get_file_path('video_segment', index=i)
+                if not os.path.exists(dst_path):
+                    self._trim_and_normalize_segment(src_path, duration, dst_path, codec_info)
+                if os.path.exists(dst_path):
+                    processed_segments.append(dst_path)
 
-        print_info(f"--- Preparing {len(all_asset_paths)} video segments ---")
-        processed_segments = []
-        for i, (src_path, duration) in enumerate(tqdm(zip(all_asset_paths, all_duration_parts), total=len(all_asset_paths), desc="Preparing Segments")):
-            dst_path = self.task_manager.get_file_path('video_segment', index=i)
-            if not os.path.exists(dst_path):
-                self._trim_and_normalize_segment(src_path, duration, dst_path, codec_info)
-            if os.path.exists(dst_path):
-                processed_segments.append(dst_path)
-
-        if not processed_segments:
-            print_error("Error: No video segments were successfully processed.")
-            return
-
-        print_info("--- Concatenating clean video ---")
-        concatenated_video_path = self.task_manager.get_file_path('concatenated_video')
-        if not os.path.exists(concatenated_video_path):
-            concat_list_path = self.task_manager.get_file_path('concat_list')
-            self._make_concat_list(processed_segments, concat_list_path)
-            concat_cmd = ['ffmpeg', '-y', '-protocol_whitelist', 'file,concat', '-fflags', '+genpts', '-f', 'concat', '-safe', '0', '-i', concat_list_path, '-c:v', 'copy', concatenated_video_path]
-            try:
-                self._run_cmd(concat_cmd)
-            except CalledProcessError:
-                log.error("Failed to concatenate clean video.")
+            if not processed_segments:
+                print_error("Error: No video segments were successfully processed.")
                 return
 
-        print_info("--- Merging audio ---")
-        video_with_audio_path = self.task_manager.get_file_path('video_with_audio')
-        if not os.path.exists(video_with_audio_path):
-            if not os.path.exists(audio_path):
-                log.warning(f"Audio file {audio_path} not found. Final video will be silent.")
-                shutil.copy(concatenated_video_path, video_with_audio_path)
-            else:
-                merge_cmd = ['ffmpeg', '-y', '-i', concatenated_video_path, '-i', audio_path, '-c:v', 'copy', '-c:a', 'aac', '-map', '0:v:0', '-map', '1:a:0', '-shortest', video_with_audio_path]
+            print_info("--- Concatenating clean video ---")
+            concatenated_video_path = self.task_manager.get_file_path('concatenated_video')
+            if not os.path.exists(concatenated_video_path):
+                concat_list_path = self.task_manager.get_file_path('concat_list')
+                self._make_concat_list(processed_segments, concat_list_path)
+                concat_cmd = ['ffmpeg', '-y', '-protocol_whitelist', 'file,concat', '-fflags', '+genpts', '-f', 'concat', '-safe', '0', '-i', concat_list_path, '-c:v', 'copy', concatenated_video_path]
                 try:
-                    self._run_ffmpeg_with_progress(merge_cmd, total_duration, "Merging Audio")
+                    self._run_cmd(concat_cmd)
                 except CalledProcessError:
-                    log.error("Failed to merge audio.")
-                    return
+                    log.error("Failed to concatenate clean video.")
+                    raise
 
-        print_info("--- Generating final video ---")
-        final_video_path = self.task_manager.get_file_path('final_video')
-        srt_path = self.task_manager.get_file_path('final_srt')
-        if burn_subtitle and os.path.exists(srt_path):
-            print_info("Burning subtitles...")
-            try:
-                self._burn_subtitles(video_with_audio_path, final_video_path, srt_path)
-            except Exception as e:
-                log.error(f"Failed to burn subtitles: {e}. Saving non-subtitled version.")
+            print_info("--- Merging audio ---")
+            video_with_audio_path = self.task_manager.get_file_path('video_with_audio')
+            if not os.path.exists(video_with_audio_path):
+                if not os.path.exists(audio_path):
+                    log.warning(f"Audio file {audio_path} not found. Final video will be silent.")
+                    shutil.copy(concatenated_video_path, video_with_audio_path)
+                else:
+                    # 移除 -c:v copy 并指定编码器，以确保 -shortest 参数可靠工作
+                    codec, extra_args, _ = self._detect_video_encoder()
+                    merge_cmd = [
+                        'ffmpeg', '-y',
+                        '-i', concatenated_video_path,
+                        '-i', audio_path,
+                        '-c:v', codec, *extra_args,
+                        '-c:a', 'aac',
+                        '-map', '0:v:0',
+                        '-map', '1:a:0',
+                        '-shortest',
+                        video_with_audio_path
+                    ]
+                    try:
+                        # 使用 ffprobe 获取音频时长，作为进度条的总时长
+                        audio_duration = self._get_media_duration(audio_path)
+                        if audio_duration is None:
+                            # 如果无法获取音频时长，就回退到使用视频总时长
+                            log.warning("无法获取音频时长，进度条可能不准确。")
+                            audio_duration = total_duration
+                        self._run_ffmpeg_with_progress(merge_cmd, audio_duration, "Merging Audio")
+                    except CalledProcessError:
+                        log.error("Failed to merge audio.")
+                        raise
+
+            print_info("--- Generating final video ---")
+            final_video_path = self.task_manager.get_file_path('final_video')
+            srt_path = self.task_manager.get_file_path('final_srt')
+            if burn_subtitle and os.path.exists(srt_path):
+                print_info("Burning subtitles...")
+                try:
+                    self._burn_subtitles(video_with_audio_path, final_video_path, srt_path)
+                except Exception as e:
+                    log.error(f"Failed to burn subtitles: {e}. Saving non-subtitled version.")
+                    shutil.copy(video_with_audio_path, final_video_path)
+            else:
                 shutil.copy(video_with_audio_path, final_video_path)
-        else:
-            shutil.copy(video_with_audio_path, final_video_path)
 
-        print_success(f"\n✔ Video composition successful! Output: {final_video_path}")
+            print_success(f"\n✔ Video composition successful! Output: {final_video_path}")
+        
+        except Exception as e:
+            log.error(f"视频合成失败: {str(e)}")
+            raise
