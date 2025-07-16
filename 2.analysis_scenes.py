@@ -16,6 +16,7 @@ def main():
     try:
         generator = SceneGenerator(task_id=args.task_id)
         generator.run()
+        log.success(f"Step 2 has been completed for task: {args.task_id}")
     except Exception as e:
         log.error(f"An error occurred during scene generation: {e}", exc_info=True)
 

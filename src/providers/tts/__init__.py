@@ -47,7 +47,7 @@ class TtsManager:
                         provider_class = _PROVIDER_CLASSES[name]
                         self.providers[name] = provider_class(name, provider_config)
                         enabled_providers.append(name)
-                        log.info(f"Successfully loaded TTS provider: '{name}'")
+                        # log.info(f"Successfully loaded TTS provider: '{name}'")
                     except Exception as e:
                         log.error(f"Failed to load TTS provider '{name}': {e}")
                 else:
@@ -100,6 +100,26 @@ class TtsManager:
         
         log.error(f"All available TTS providers failed. Last error: {last_exception}")
         sys.exit(1)
+
+    def check_availability(self) -> bool:
+        if not self.ordered_providers:
+            return False
+
+        for provider_name in list(self.ordered_providers):
+            provider = self.providers.get(provider_name)
+            if not provider:
+                continue
+            try:
+                # Silently try to synthesize
+                test_result = provider.synthesize("test", silent=True)
+                if test_result and test_result.get("url"):
+                    return True
+            except Exception:
+                # Ignore exceptions during check, just try the next provider
+                continue
+        
+        # If loop completes, no provider was successful
+        return False
 
     def synthesize_with_failover(self, text: str, **kwargs) -> Dict:
         return self._execute_with_failover('synthesize', text, **kwargs)

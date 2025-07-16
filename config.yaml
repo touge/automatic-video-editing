@@ -128,6 +128,7 @@ video:
 # File Paths
 # ----------
 paths:
+  task_folder: "tasks"
   # 你的本地视频素材库，下载的素材也会保存在这里。
   local_assets_dir: "storage/local"
   # 本地模型配置
@@ -143,7 +144,7 @@ paths:
 asset_search:
   # 每次在线搜索时，向Pexels或Pixabay请求的素材数量。
   # 增加此值可以提高找到合适素材的几率，但会消耗更多API配额。
-  online_search_count: 15
+  online_search_count: 5
 
   # 在关键词用尽后，调用Ollama生成新关键词的最大重试次数。
   max_keyword_retries: 2

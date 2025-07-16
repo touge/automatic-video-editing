@@ -23,6 +23,7 @@ class CosyVoiceTtsProvider(BaseTtsProvider):
         """
         Synthesize speech using the CosyVoice TTS service.
         """
+        silent = kwargs.get('silent', False)
         full_api_url = self.base_endpoint + self.api_path
         
         headers = {
@@ -44,7 +45,8 @@ class CosyVoiceTtsProvider(BaseTtsProvider):
         }
 
         try:
-            log.info(f"Sending TTS request to {full_api_url} with speaker '{speaker}'")
+            if not silent:
+                log.info(f"Sending TTS request to {full_api_url} with speaker '{speaker}'")
             response = requests.post(full_api_url, headers=headers, json=payload)
             response.raise_for_status()
             
@@ -55,15 +57,19 @@ class CosyVoiceTtsProvider(BaseTtsProvider):
                 if not audio_url.startswith(('http://', 'https://')):
                     audio_url = self.base_endpoint + audio_url
                 data['url'] = audio_url
-                log.info(f"TTS synthesis successful. Full audio URL: {audio_url}")
+                if not silent:
+                    log.info(f"TTS synthesis successful. Full audio URL: {audio_url}")
                 return data
             else:
-                log.error(f"TTS synthesis failed with status: {data.get('status')}. Reason: {data.get('message')}")
+                if not silent:
+                    log.error(f"TTS synthesis failed with status: {data.get('status')}. Reason: {data.get('message')}")
                 raise Exception(f"TTS API returned an error: {data.get('message')}")
 
         except requests.exceptions.RequestException as e:
-            log.error(f"Failed to connect to TTS service at {full_api_url}: {e}")
+            if not silent:
+                log.error(f"Failed to connect to TTS service at {full_api_url}: {e}")
             raise
         except Exception as e:
-            log.error(f"An unexpected error occurred during TTS synthesis: {e}")
+            if not silent:
+                log.error(f"An unexpected error occurred during TTS synthesis: {e}")
             raise

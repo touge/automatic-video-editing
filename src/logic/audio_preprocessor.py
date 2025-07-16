@@ -9,14 +9,63 @@ from tqdm import tqdm
 from typing import List, Dict
 
 import bootstrap
-from src.utils import ensure_task_path
 from src.logger import log
 from src.tts import tts
 from src.config_loader import config
 from src.core.model_loader import ModelLoader
-from src.core.audio import AudioProcessor
 from src.core.text import TextProcessor
 from src.core.search import Searcher
+from src.core.task_manager import TaskManager
+
+
+class AudioProcessor:
+    """
+    Handles audio processing tasks, primarily transcription.
+    """
+    def __init__(self, model_loader: ModelLoader):
+        self.whisper_model = model_loader.get_whisper_model()
+
+    def transcribe(self, audio_file: str):
+        """
+        Transcribes an audio file using the pre-loaded faster-whisper model,
+        and extracts word-level timestamps.
+        """
+        if not self.whisper_model:
+            log.error("Whisper model not available for transcription.")
+            return None, None, None
+
+        log.info(f"Transcribing audio file: {audio_file} (this may take a while)...")
+        
+        segments, info = self.whisper_model.transcribe(
+            audio_file, 
+            beam_size=5, 
+            word_timestamps=True
+        )
+        
+        full_text = ""
+        segments_info = []
+        
+        for segment in tqdm(segments, desc="Processing transcription segments"):
+            full_text += segment.text
+            words_info = []
+            if segment.words:
+                for word in segment.words:
+                    words_info.append({
+                        "word": word.word,
+                        "start": word.start,
+                        "end": word.end
+                    })
+            
+            segments_info.append({
+                "start": segment.start,
+                "end": segment.end,
+                "text": segment.text,
+                "words": words_info
+            })
+            
+        log.info("Audio transcription complete.")
+        return full_text, segments_info, info
+
 
 class AudioPreprocessor:
     def __init__(self, task_id: str, doc_file: str):
@@ -25,38 +74,24 @@ class AudioPreprocessor:
         if not os.path.exists(doc_file):
             raise FileNotFoundError(f"Document file not found at '{doc_file}'")
 
-        self.task_id = task_id
+        self.task_manager = TaskManager(task_id)
         self.doc_file = doc_file
-        
-        # Setup paths
-        self.task_dir = ensure_task_path(self.task_id)
-        self.doc_cache_dir = os.path.join(self.task_dir, ".documents")
-        self.audio_cache_dir = os.path.join(self.task_dir, ".audios")
-        self.whisper_cache_dir = os.path.join(self.task_dir, ".whisper")
-        # self.alignment_cache_dir = os.path.join(self.task_dir, ".alignment")
-        self.doc_segments_dir = os.path.join(self.doc_cache_dir, "segments")
-        self.audio_segments_dir = os.path.join(self.audio_cache_dir, "segments")
-        
-        for d in [self.doc_cache_dir, self.audio_cache_dir, self.whisper_cache_dir, self.doc_segments_dir, self.audio_segments_dir]:
-            os.makedirs(d, exist_ok=True)
 
     def run(self):
-        log.info(f"--- Starting Audio Preprocessing for Task ID: {self.task_id} ---")
+        log.info(f"--- Starting Audio Preprocessing for Task ID: {self.task_manager.task_id} ---")
         
-        # --- Step 1: TTS and Audio Combination ---
         segments = self._process_document_for_tts()
         if not segments: return
 
         self._synthesize_audio_segments(segments)
         
-        final_audio_path = os.path.join(self.task_dir, "final_audio.wav")
+        final_audio_path = self.task_manager.get_file_path('final_audio')
         if os.path.exists(final_audio_path):
             log.info(f"Final audio already exists, skipping combination: {final_audio_path}")
         else:
             if not self._combine_audio_segments(len(segments), final_audio_path):
                 return
 
-        # --- Step 2: Subtitle Generation ---
         self._generate_subtitles(final_audio_path)
 
     def _download_file(self, url: str, destination: str) -> bool:
@@ -73,7 +108,7 @@ class AudioPreprocessor:
 
     def _process_document_for_tts(self) -> List[str]:
         log.info("--- Step 2.1: Processing document for TTS ---")
-        shutil.copy(self.doc_file, os.path.join(self.doc_cache_dir, "original.txt"))
+        shutil.copy(self.doc_file, self.task_manager.get_file_path('original_doc'))
         log.success("Cached original document.")
         with open(self.doc_file, 'r', encoding='utf-8') as f:
             content = f.read()
@@ -83,7 +118,7 @@ class AudioPreprocessor:
             return []
         log.success(f"Document split into {len(segments)} segments for TTS.")
         for i, segment_text in enumerate(segments):
-            with open(os.path.join(self.doc_segments_dir, f"{i}.txt"), 'w', encoding='utf-8') as f:
+            with open(self.task_manager.get_file_path('doc_segment', index=i), 'w', encoding='utf-8') as f:
                 f.write(segment_text)
         log.success("All TTS text segments cached.")
         return segments
@@ -91,7 +126,7 @@ class AudioPreprocessor:
     def _synthesize_audio_segments(self, segments: List[str]):
         log.info("--- Step 2.2: Synthesizing audio for each segment ---")
         for i, segment_text in enumerate(tqdm(segments, desc="Synthesizing Audio")):
-            audio_path = os.path.join(self.audio_segments_dir, f"{i}.wav")
+            audio_path = self.task_manager.get_file_path('audio_segment', index=i)
             if os.path.exists(audio_path):
                 continue
             try:
@@ -105,7 +140,7 @@ class AudioPreprocessor:
 
     def _combine_audio_segments(self, num_segments: int, output_path: str) -> bool:
         log.info("\n--- Step 2.3: Combining all audio segments ---")
-        valid_audio_files = [os.path.join(self.audio_segments_dir, f"{i}.wav") for i in range(num_segments) if os.path.exists(os.path.join(self.audio_segments_dir, f"{i}.wav"))]
+        valid_audio_files = [self.task_manager.get_file_path('audio_segment', index=i) for i in range(num_segments) if os.path.exists(self.task_manager.get_file_path('audio_segment', index=i))]
         if not valid_audio_files:
             log.error("No audio files were generated to combine.")
             return False
@@ -129,16 +164,22 @@ class AudioPreprocessor:
             searcher = Searcher(model_loader, text_processor)
             log.success("Core components for subtitling initialized.")
 
-            original_doc_path = os.path.join(self.doc_cache_dir, "original.txt")
-            sentences_path = os.path.join(self.doc_cache_dir, "sentences.txt")
-            whisper_cache_path = os.path.join(self.whisper_cache_dir, "transcription.json")
-            alignment_cache_path = os.path.join(self.whisper_cache_dir, "aligned.pkl")
-            srt_output_path = os.path.join(self.task_dir, "final.srt")
-
-            sentences = self._split_text_into_sentences(original_doc_path, sentences_path)
-            whisper_segments = self._transcribe_audio(audio_processor, final_audio_path, whisper_cache_path)
-            aligned_data = self._align_text_to_audio(searcher, sentences, whisper_segments, alignment_cache_path)
-            self._create_srt_from_alignment(aligned_data, srt_output_path)
+            sentences = self._split_text_into_sentences(
+                self.task_manager.get_file_path('original_doc'), 
+                self.task_manager.get_file_path('sentences')
+            )
+            whisper_segments = self._transcribe_audio(
+                audio_processor, 
+                final_audio_path, 
+                self.task_manager.get_file_path('whisper_cache')
+            )
+            aligned_data = self._align_text_to_audio(
+                searcher, 
+                sentences, 
+                whisper_segments, 
+                self.task_manager.get_file_path('alignment_cache')
+            )
+            self._create_srt_from_alignment(aligned_data, self.task_manager.get_file_path('final_srt'))
 
         except Exception as e:
             log.error(f"An error occurred during subtitle generation: {e}", exc_info=True)

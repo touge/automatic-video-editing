@@ -15,11 +15,11 @@ from src.color_utils import (
     print_success,
     print_info,
 )
+from src.core.task_manager import TaskManager
 
 def _escape_ffmpeg_path(path: str | Path) -> str:
     """
-    为在ffmpeg滤镜参数中使用的路径进行转义，尤其针对Windows。
-    参考: https://github.com/kkroening/ffmpeg-python/issues/269
+    Escapes a path for use in ffmpeg filter parameters, especially for Windows.
     """
     path_str = str(path)
     if platform.system() == "Windows":
@@ -29,163 +29,100 @@ def _escape_ffmpeg_path(path: str | Path) -> str:
 class VideoComposer:
     def __init__(self, config: dict, task_id: str):
         self.config = config
-        self.task_id = task_id
-        self.task_path = Path("storage") / "tasks" / task_id
+        self.task_manager = TaskManager(task_id)
         
         video_config = self.config.get('video', {})
         self.width = video_config.get('width', 1920)
         self.height = video_config.get('height', 1080)
         self.fps = video_config.get('fps', 30)
         
-        # 加载字幕配置
         self.subtitle_config = video_config.get('subtitles', {})
-        
-        # 调试模式，用于在执行ffmpeg命令时打印详细日志
         self.debug = self.config.get('debug', False)
 
-        # 为每个阶段的产出物（缓存）创建一个目录
-        self.cache_path = self.task_path / ".videos"
-        self.cache_path.mkdir(parents=True, exist_ok=True)
-
     def _detect_video_encoder(self) -> tuple[str, list, bool]:
-        """检测可用的视频编码器，优先硬件编码。返回 (codec, extra_args, hwaccel_qsv)"""
+        """Detects available video encoders, prioritizing hardware encoding."""
         try:
-            # 运行 ffmpeg -encoders 命令并捕获输出
             result = subprocess.run(
                 ['ffmpeg', '-hide_banner', '-encoders'],
                 capture_output=True, text=True, check=True, encoding='utf-8'
             )
             available_encoders = result.stdout.lower()
         except (FileNotFoundError, CalledProcessError):
-            log.warning("无法执行 ffmpeg -encoders，将回退到默认的 libx264 编码器。")
+            log.warning("Could not execute ffmpeg -encoders, falling back to default libx264.")
             return 'libx264', ['-preset', 'veryfast'], False
 
-        # 按优先级检查硬件编码器
         if 'h264_nvenc' in available_encoders:
-            print_info("检测到 NVIDIA NVENC 硬件编码器。")
+            print_info("NVIDIA NVENC hardware encoder detected.")
             return 'h264_nvenc', ['-preset', 'p2'], False
         if 'h264_qsv' in available_encoders:
-            print_info("检测到 Intel QSV 硬件编码器。")
+            print_info("Intel QSV hardware encoder detected.")
             return 'h264_qsv', [], True
         if 'h264_videotoolbox' in available_encoders:
-            print_info("检测到 Apple VideoToolbox 硬件编码器。")
+            print_info("Apple VideoToolbox hardware encoder detected.")
             return 'h264_videotoolbox', [], False
         
-        print_warning("未检测到特定硬件编码器，将使用高效的 libx264 软件编码器。")
+        print_warning("No specific hardware encoder detected, using efficient libx264 software encoder.")
         return 'libx264', ['-preset', 'veryfast'], False
 
     def _run_cmd(self, cmd: list):
-        """执行ffmpeg命令，根据debug模式决定是否隐藏输出"""
+        """Executes an ffmpeg command, hiding output unless in debug mode."""
         if self.debug:
-            # 调试模式下，实时打印所有输出
             subprocess.run(cmd, check=True)
         else:
-            # 非调试模式下，抑制标准输出和错误流，只在失败时抛出异常
             subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    def _trim_and_normalize_segment(self, src_path: Path, duration: float, dst_path: Path, codec_info: tuple):
-        """
-        裁剪并标准化单个视频片段，具有强大的编码回退机制。
-        - src_path: 源视频文件路径。
-        - duration: 需要从视频开头裁剪的时长。
-        - dst_path: 处理后输出的片段路径。
-        - codec_info: 包含(编码器, 额外参数, 是否为QSV硬件加速)的元组。
-        """
+    def _trim_and_normalize_segment(self, src_path: Path, duration: float, dst_path: str, codec_info: tuple):
         codec, extra_args, hwaccel_qsv = codec_info
-        
-        # 定义视频滤镜链：缩放、填充黑边、设定帧率
-        vf_string = (
-            f"scale={self.width}:-2:force_original_aspect_ratio=decrease,"
-            f"pad={self.width}:{self.height}:(ow-iw)/2:(oh-ih)/2:color=black,"
-            f"fps={self.fps}"
-        )
+        vf_string = f"scale={self.width}:-2:force_original_aspect_ratio=decrease,pad={self.width}:{self.height}:(ow-iw)/2:(oh-ih)/2:color=black,fps={self.fps}"
 
-        # 内部函数，用于尝试执行一个ffmpeg命令
         def try_encode(command, mode_desc):
             try:
                 self._run_cmd(command)
                 return True
             except CalledProcessError:
-                log.warning(f"使用“{mode_desc}”模式处理 {src_path.name} 失败，尝试下一个方案...")
+                log.warning(f"Failed to process {src_path.name} with '{mode_desc}', trying next.")
                 if self.debug:
-                    log.debug(f"失败的命令: {' '.join(command)}")
+                    log.debug(f"Failed command: {' '.join(command)}")
                 return False
 
-        # 方案 1: 使用推荐的编码器（可能是硬件编码）进行转码
         cmd1 = ['ffmpeg', '-y']
         if hwaccel_qsv:
             cmd1 += ['-hwaccel', 'qsv']
-        cmd1 += [
-            '-ss', '0', '-t', str(duration),
-            '-i', str(src_path),
-            '-vf', vf_string,
-            '-c:v', codec, *extra_args,
-            '-c:a', 'aac', str(dst_path)
-        ]
-        if try_encode(cmd1, f"推荐编码器 ({codec})"):
+        cmd1 += ['-ss', '0', '-t', str(duration), '-i', str(src_path), '-vf', vf_string, '-c:v', codec, *extra_args, '-c:a', 'aac', dst_path]
+        if try_encode(cmd1, f"recommended encoder ({codec})"):
             return
 
-        # 方案 2: 如果推荐编码器不是 libx264 且失败了，回退到 libx264
         if codec != 'libx264':
             cmd2 = cmd1.copy()
-            # 找到并替换视频编码器相关参数
             try:
                 idx = cmd2.index('-c:v')
-                # 移除旧的编码器和其特定参数
                 del cmd2[idx : idx + 2 + len(extra_args)]
-                # 插入 libx264 和它的参数
-                cmd2.insert(idx, '-c:v')
-                cmd2.insert(idx + 1, 'libx264')
-                cmd2.insert(idx + 2, '-preset')
-                cmd2.insert(idx + 3, 'veryfast')
-            except ValueError: # 如果-c:v找不到，直接在末尾添加
+                cmd2.insert(idx, '-c:v'); cmd2.insert(idx + 1, 'libx264'); cmd2.insert(idx + 2, '-preset'); cmd2.insert(idx + 3, 'veryfast')
+            except ValueError:
                  cmd2 += ['-c:v', 'libx264', '-preset', 'veryfast']
-
-            if try_encode(cmd2, "软件编码器 (libx264)"):
+            if try_encode(cmd2, "software encoder (libx264)"):
                 return
 
-        # 方案 3: 作为最后手段，尝试流拷贝（不应用任何视频滤镜，只做裁剪）
-        # 这在源视频格式与目标高度兼容时可能成功
-        cmd3 = [
-            'ffmpeg', '-y',
-            '-ss', '0', '-t', str(duration),
-            '-i', str(src_path),
-            '-c', 'copy',
-            str(dst_path)
-        ]
-        if try_encode(cmd3, "流拷贝 (仅裁剪)"):
+        cmd3 = ['ffmpeg', '-y', '-ss', '0', '-t', str(duration), '-i', str(src_path), '-c', 'copy', dst_path]
+        if try_encode(cmd3, "stream copy (trim only)"):
             return
         
-        # 如果所有方案都失败了
-        print_error(f"错误: 无法处理片段 {src_path}，所有编码方案均告失败。该片段将被跳过。")
+        print_error(f"Error: Could not process segment {src_path}. All encoding schemes failed. Skipping.")
 
-    def _make_concat_list(self, segment_paths: list[Path], list_path: Path):
-        """为 ffmpeg 的 concat demuxer 创建文件列表。"""
-        lines = []
-        for seg_path in segment_paths:
-            abs_path = seg_path.resolve().as_posix()
-            lines.append(f"file '{abs_path}'\n")
-
-        # 写入文件
-        with list_path.open('w', encoding='utf-8') as f:
+    def _make_concat_list(self, segment_paths: list[str], list_path: str):
+        lines = [f"file '{Path(p).resolve().as_posix()}'\n" for p in segment_paths]
+        with open(list_path, 'w', encoding='utf-8') as f:
             f.writelines(lines)
-
-        # 打印校验
-        log.debug(f"生成的 concat_list.txt 内容：\n{''.join(lines)}")
-
+        log.debug(f"Generated concat_list.txt content:\n{''.join(lines)}")
 
     def _run_ffmpeg_with_progress(self, cmd: list, total_duration: float, desc: str):
-        """通用函数，用于带进度条地运行ffmpeg命令。"""
         if self.debug:
-            log.debug(f"执行FFmpeg命令: {' '.join(cmd)}")
+            log.debug(f"Executing FFmpeg command: {' '.join(cmd)}")
             subprocess.run(cmd, check=True)
             return
 
-        progress_log_path = self.cache_path / f"progress_{desc.replace(' ', '_')}.log"
-        
-        # 在命令中插入 -progress 参数
-        progress_cmd = cmd[:1] + ['-progress', str(progress_log_path)] + cmd[1:]
-        
+        progress_log_path = self.task_manager.get_file_path('progress_log', name=desc.replace(' ', '_'))
+        progress_cmd = cmd[:1] + ['-progress', progress_log_path] + cmd[1:]
         process = subprocess.Popen(progress_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         pbar = tqdm(total=round(total_duration, 2), unit="s", desc=desc)
@@ -193,258 +130,118 @@ class VideoComposer:
         try:
             while process.poll() is None:
                 time.sleep(0.25)
-                if not progress_log_path.exists():
-                    continue
-                
+                if not os.path.exists(progress_log_path): continue
                 try:
-                    # 读取日志文件的最后几行来获取最新进度
                     with open(progress_log_path, 'r', encoding='utf-8') as f:
                         content = f.read().strip()
-                    
-                    # 解析 out_time_us
                     last_line = content.splitlines()[-1]
                     if 'out_time_us=' in last_line:
-                        processed_time_us = int(last_line.split('=')[1])
-                        current_time = round(processed_time_us / 1_000_000, 2)
+                        current_time = round(int(last_line.split('=')[1]) / 1_000_000, 2)
                         if current_time > last_time:
                             pbar.update(current_time - last_time)
                             last_time = current_time
                 except (IOError, ValueError, IndexError):
-                    # 忽略读取或解析过程中的小错误
                     pass
-            
-            # 确保进度条走完
             if pbar.n < total_duration:
                 pbar.update(total_duration - pbar.n)
-
         finally:
             pbar.close()
             if process.returncode != 0:
-                log.error(f"FFmpeg {desc} 过程失败。")
-                # 在调试模式下可以考虑保留日志文件
-                # if not self.debug and progress_log_path.exists():
-                #     progress_log_path.unlink()
+                log.error(f"FFmpeg {desc} process failed.")
                 raise CalledProcessError(process.returncode, cmd)
-            
-            if progress_log_path.exists():
-                progress_log_path.unlink()
+            if os.path.exists(progress_log_path):
+                os.unlink(progress_log_path)
 
     def _validate_subtitle_config(self):
-        """验证字幕配置和相关文件"""
-        subtitle_config = self.config.get('video', {}).get('subtitles', {})
-        font_dir = Path(subtitle_config.get('font_dir', 'assets/styles/fonts'))
-        font_name = subtitle_config.get('font_name')
-        
+        font_dir = Path(self.subtitle_config.get('font_dir', 'assets/fonts'))
         if not font_dir.exists():
-            log.error(f"字体目录不存在: {font_dir}")
+            log.error(f"Font directory does not exist: {font_dir}")
             return False
-            
-        font_files = list(font_dir.glob('*.?tf'))  # 匹配 .ttf 和 .otf
-        if not font_files:
-            log.error(f"字体目录中没有找到字体文件: {font_dir}")
+        if not any(font_dir.glob('*.?tf')):
+            log.error(f"No font files (.ttf, .otf) found in: {font_dir}")
             return False
-            
-        log.debug(f"找到字体文件: {[f.name for f in font_files]}")
         return True
 
-    def _burn_subtitles(self, input_path: Path, output_path: Path, subtitle_path: Path):
-        """烧录字幕的具体实现"""
+    def _burn_subtitles(self, input_path: str, output_path: str, subtitle_path: str):
         if not self._validate_subtitle_config():
-            log.error("字幕配置验证失败，请检查字体文件和配置")
-            raise RuntimeError("字幕配置验证失败")
+            raise RuntimeError("Subtitle configuration validation failed.")
         
-        subtitle_config = self.config.get('video', {}).get('subtitles', {})
-        
-        # 验证字体目录
-        font_dir = Path(subtitle_config.get('font_dir', 'assets/fonts'))
-        if not font_dir.exists():
-            log.error(f"字体目录不存在: {font_dir}")
-            raise RuntimeError(f"字体目录不存在: {font_dir}")
-        
-        # 将字体目录添加到字幕滤镜
+        font_dir = Path(self.subtitle_config.get('font_dir', 'assets/fonts'))
         escaped_font_dir = _escape_ffmpeg_path(font_dir.resolve())
-        subtitle_filter = (
-            f"subtitles={_escape_ffmpeg_path(subtitle_path)}"
-            f":fontsdir='{escaped_font_dir}'"
-            f":force_style='"
-            f"FontName={subtitle_config['font_name']},"
-            f"FontSize={subtitle_config['font_size']},"
-            f"PrimaryColour={subtitle_config['primary_color']},"
-            f"OutlineColour={subtitle_config['outline_color']},"
-            f"BorderStyle={subtitle_config['border_style']},"
-            f"Outline={subtitle_config['outline']},"
-            f"Shadow={subtitle_config['shadow']},"
-            f"Spacing={subtitle_config['spacing']},"
-            f"Alignment={subtitle_config['alignment']},"
-            f"MarginV={subtitle_config['vertical_margin']}'"
-        )
+        style_options = ",".join([f"{k}={v}" for k, v in self.subtitle_config.items() if k not in ['font_dir']])
+        subtitle_filter = f"subtitles={_escape_ffmpeg_path(subtitle_path)}:fontsdir='{escaped_font_dir}':force_style='{style_options}'"
+        
+        ffmpeg_cmd = ['ffmpeg', '-y', '-i', input_path, '-vf', subtitle_filter, '-c:a', 'copy', output_path]
+        if self.debug:
+            log.debug(f"FFmpeg subtitle burn command: {' '.join(ffmpeg_cmd)}")
         
         try:
-            # 构建 FFmpeg 命令
-            ffmpeg_cmd = [
-                'ffmpeg', '-y',
-                '-i', str(input_path),
-                '-vf', subtitle_filter,
-                '-c:a', 'copy',
-                str(output_path)
-            ]
-            
-            if self.debug:
-                log.debug("字幕配置信息:")
-                log.debug(f"字体目录: {font_dir}")
-                log.debug(f"字体名称: {subtitle_config['font_name']}")
-                log.debug(f"FFmpeg 字幕烧录命令: {' '.join(ffmpeg_cmd)}")
-            
-            # 直接使用 run_cmd 而不是 subprocess.run
             self._run_cmd(ffmpeg_cmd)
-            
-        except subprocess.CalledProcessError as e:
-            log.error(f"FFmpeg 烧录字幕失败: {e}")
-            # 尝试运行一个简单的测试命令来验证字幕功能
-            test_cmd = [
-                'ffmpeg', '-y',
-                '-i', str(input_path),
-                '-vf', f"subtitles={_escape_ffmpeg_path(subtitle_path)}",
-                '-t', '10',  # 只测试前10秒
-                '-c:a', 'copy',
-                str(output_path.parent / 'test_subtitle.mp4')
-            ]
-            try:
-                log.debug("尝试运行简化的字幕测试...")
-                self._run_cmd(test_cmd)
-            except subprocess.CalledProcessError:
-                log.error("简化字幕测试也失败，可能是字幕文件格式有问题")
+        except CalledProcessError as e:
+            log.error(f"FFmpeg subtitle burn failed: {e}")
             raise
 
     def assemble_video(self, scenes: list, scene_asset_paths: list, audio_path: str, burn_subtitle: bool = False):
-        """
-        采用分阶段、多级缓存的策略，将视频片段和音频合成为最终视频。
-        """
-        print_info("--- 开始视频合成流程 ---")
-        final_video_path = self.task_path / "final_video.mp4"
-
-        # --- 阶段 1/5: 准备工作 ---
-        print_info("--- 阶段 1/5: 准备工作与素材检查 ---")
-        codec, extra_args, hwaccel_qsv = self._detect_video_encoder()
-        codec_info = (codec, extra_args, hwaccel_qsv)
-
+        print_info("--- Starting Video Composition ---")
+        codec_info = self._detect_video_encoder()
         all_asset_paths = [Path(p) for paths in scene_asset_paths for p in paths]
         all_duration_parts = [dur for s in scenes for dur in s.get('duration_parts', [])]
         total_duration = sum(all_duration_parts)
 
         if not all_asset_paths:
-            log.error("错误: 没有可用的视频素材路径。")
+            log.error("Error: No video asset paths available.")
             return
 
-        # --- 阶段 2/5: 准备视频片段 ---
-        print_info(f"--- 阶段 2/5: 检查并准备 {len(all_asset_paths)} 个视频片段 ---")
+        print_info(f"--- Preparing {len(all_asset_paths)} video segments ---")
         processed_segments = []
-        all_segments_cached = True
-        with tqdm(total=len(all_asset_paths), desc="准备片段", unit="个") as pbar:
-            for i, (src_path, duration) in enumerate(zip(all_asset_paths, all_duration_parts)):
-                dst_path = self.cache_path / f"seg_{i:04d}.mp4"
-                if not dst_path.exists():
-                    all_segments_cached = False
-                    self._trim_and_normalize_segment(src_path, duration, dst_path, codec_info)
-
-                if dst_path.exists():
-                    processed_segments.append(dst_path)
-                pbar.update(1)
-
-        if all_segments_cached:
-            print_success("所有视频片段均已从缓存加载。")
+        for i, (src_path, duration) in enumerate(tqdm(zip(all_asset_paths, all_duration_parts), total=len(all_asset_paths), desc="Preparing Segments")):
+            dst_path = self.task_manager.get_file_path('video_segment', index=i)
+            if not os.path.exists(dst_path):
+                self._trim_and_normalize_segment(src_path, duration, dst_path, codec_info)
+            if os.path.exists(dst_path):
+                processed_segments.append(dst_path)
 
         if not processed_segments:
-            print_error("错误: 未能成功处理任何视频片段，无法继续合成。")
+            print_error("Error: No video segments were successfully processed.")
             return
 
-        # --- 阶段 3/5: 拼接纯净视频 (无声、无字幕) ---
-        print_info("--- 阶段 3/5: 拼接纯净视频 ---")
-        concatenated_video_path = self.cache_path / "video_only_concatenated.mp4"
-        if concatenated_video_path.exists():
-            print_success(f"发现已缓存的拼接视频 ({concatenated_video_path.name})，跳过拼接步骤。")
-        else:
-            concat_list_path = self.cache_path / "concat_list.txt"
+        print_info("--- Concatenating clean video ---")
+        concatenated_video_path = self.task_manager.get_file_path('concatenated_video')
+        if not os.path.exists(concatenated_video_path):
+            concat_list_path = self.task_manager.get_file_path('concat_list')
             self._make_concat_list(processed_segments, concat_list_path)
-
-            # 由于所有片段都已标准化，我们可以安全地使用流拷贝，这非常快
-            concat_cmd = [
-                'ffmpeg', '-y',
-                '-protocol_whitelist', 'file,concat',
-                '-fflags', '+genpts',
-                '-f', 'concat', '-safe', '0',
-                '-i', str(concat_list_path.resolve()),
-                '-c:v', 'copy',
-                str(concatenated_video_path)
-            ]
+            concat_cmd = ['ffmpeg', '-y', '-protocol_whitelist', 'file,concat', '-fflags', '+genpts', '-f', 'concat', '-safe', '0', '-i', concat_list_path, '-c:v', 'copy', concatenated_video_path]
             try:
-                print_info("正在拼接视频片段...")
                 self._run_cmd(concat_cmd)
-                print_success("纯净视频拼接完成。")
             except CalledProcessError:
-                log.error("拼接纯净视频失败，程序终止。")
+                log.error("Failed to concatenate clean video.")
                 return
 
-        # --- 阶段 4/5: 合并音频 ---
-        print_info("--- 阶段 4/5: 合并背景音频 ---")
-        video_with_audio_path = self.cache_path / "video_with_audio.mp4"
-        audio_file_path = Path(audio_path)
+        print_info("--- Merging audio ---")
+        video_with_audio_path = self.task_manager.get_file_path('video_with_audio')
+        if not os.path.exists(video_with_audio_path):
+            if not os.path.exists(audio_path):
+                log.warning(f"Audio file {audio_path} not found. Final video will be silent.")
+                shutil.copy(concatenated_video_path, video_with_audio_path)
+            else:
+                merge_cmd = ['ffmpeg', '-y', '-i', concatenated_video_path, '-i', audio_path, '-c:v', 'copy', '-c:a', 'aac', '-map', '0:v:0', '-map', '1:a:0', '-shortest', video_with_audio_path]
+                try:
+                    self._run_ffmpeg_with_progress(merge_cmd, total_duration, "Merging Audio")
+                except CalledProcessError:
+                    log.error("Failed to merge audio.")
+                    return
 
-        if video_with_audio_path.exists():
-            print_success(f"发现已缓存的带音频视频 ({video_with_audio_path.name})，跳过音频合并。")
-        elif not audio_file_path.exists():
-            log.warning(f"音频文件 {audio_path} 未找到，将跳过音频合并。最终视频将是无声的。")
-            shutil.copy(str(concatenated_video_path), str(video_with_audio_path))
-        else:
-            merge_cmd = [
-                'ffmpeg', '-y',
-                '-i', str(concatenated_video_path),
-                '-i', str(audio_file_path),
-                '-c:v', 'copy',
-                '-c:a', 'aac',
-                '-map', '0:v:0',
-                '-map', '1:a:0',
-                '-shortest',
-                str(video_with_audio_path)
-            ]
+        print_info("--- Generating final video ---")
+        final_video_path = self.task_manager.get_file_path('final_video')
+        srt_path = self.task_manager.get_file_path('final_srt')
+        if burn_subtitle and os.path.exists(srt_path):
+            print_info("Burning subtitles...")
             try:
-                self._run_ffmpeg_with_progress(merge_cmd, total_duration, "合并音频")
-                print_success("音频合并完成。")
-            except CalledProcessError:
-                log.error("音频合并失败，程序终止。")
-                return
-
-        # --- 阶段 5/5: 烧录字幕并生成最终视频 ---
-        print_info("--- 阶段 5/5: 生成最终视频 ---")
-        srt_path = None  # 在这里初始化变量
-        
-        if burn_subtitle:
-            srt_path = self.task_path / "final.srt"
-            if not srt_path.exists():
-                log.error(f"字幕文件 {srt_path} 未找到，无法烧录字幕。")
-                return
-                
-        final_video_path = self.task_path / "final_video.mp4"
-
-        if srt_path and srt_path.exists():
-            print_info("正在烧录字幕...")
-            try:
-                self._burn_subtitles(
-                    input_path=video_with_audio_path,
-                    output_path=final_video_path,
-                    subtitle_path=srt_path
-                )
-                print_success("字幕烧录完成。")
+                self._burn_subtitles(video_with_audio_path, final_video_path, srt_path)
             except Exception as e:
-                log.error(f"字幕烧录失败: {e}")
-                # 如果字幕烧录失败，至少保存无字幕版本
-                print_warning("保存无字幕版本...")
-                shutil.copy(str(video_with_audio_path), str(final_video_path))
+                log.error(f"Failed to burn subtitles: {e}. Saving non-subtitled version.")
+                shutil.copy(video_with_audio_path, final_video_path)
         else:
-            print_info("无需烧录字幕，直接复制文件...")
-            shutil.copy(str(video_with_audio_path), str(final_video_path))
+            shutil.copy(video_with_audio_path, final_video_path)
 
-        print_info("\n############################################################")
-        print_success(f"✔ 视频合成成功！")
-        print_success(f"==> 输出文件位于: {final_video_path}")
-        print_info("############################################################")
+        print_success(f"\n✔ Video composition successful! Output: {final_video_path}")

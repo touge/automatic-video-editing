@@ -97,6 +97,7 @@ video:
 
 # 文件路径配置
 paths:
+  task_folder: "storage/tasks"
   local_assets_dir: "storage/local"
   local_models: 
     base_path: "models"
