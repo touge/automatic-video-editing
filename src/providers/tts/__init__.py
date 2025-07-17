@@ -13,7 +13,7 @@ _PROVIDER_CLASSES = {
 
 class TtsManager:
     """
-    Manages all configured TTS providers.
+    Manages the configured TTS provider.
     This is a singleton to ensure a single instance throughout the application.
     """
     _instance = None
@@ -27,105 +27,76 @@ class TtsManager:
         if hasattr(self, '_initialized') and self._initialized:
             return
         
+        self.provider: Optional[BaseTtsProvider] = None
         if config is None:
-            self.providers: Dict[str, BaseTtsProvider] = {}
-            self.default_provider_name: Optional[str] = None
-            self.ordered_providers: List[str] = []
             self._initialized = True
             log.warning("TtsManager initialized without configuration.")
             return
 
-        self.providers: Dict[str, BaseTtsProvider] = {}
         tts_config = config.get('tts_providers', {})
-        self.default_provider_name = tts_config.get('default')
+        provider_name = tts_config.get('use')
         
-        enabled_providers = []
-        for name, provider_config in tts_config.items():
-            if name == 'default':
-                continue
-            if provider_config.get('enabled'):
-                if name in _PROVIDER_CLASSES:
-                    try:
-                        provider_class = _PROVIDER_CLASSES[name]
-                        self.providers[name] = provider_class(name, provider_config)
-                        enabled_providers.append(name)
-                        # log.info(f"Successfully loaded TTS provider: '{name}'")
-                    except Exception as e:
-                        log.error(f"Failed to load TTS provider '{name}': {e}")
-                else:
-                    log.warning(f"Unknown TTS provider type configured: '{name}'")
-        
-        self.ordered_providers = []
-        if self.default_provider_name and self.default_provider_name in self.providers:
-            self.ordered_providers.append(self.default_provider_name)
-        
-        for provider in enabled_providers:
-            if provider != self.default_provider_name:
-                self.ordered_providers.append(provider)
+        if not provider_name:
+            log.error("No TTS provider specified in config 'tts_providers.use'.")
+            self._initialized = True
+            return
 
-        if not self.ordered_providers:
-            log.error("No TTS providers are enabled or available.")
-            self.default_provider_name = None
-        elif self.default_provider_name not in self.providers:
-            log.warning(f"Default TTS provider '{self.default_provider_name}' is not available or enabled.")
-            self.default_provider_name = self.ordered_providers[0]
-            log.info(f"Falling back to use '{self.default_provider_name}' as default TTS provider.")
+        if provider_name in _PROVIDER_CLASSES:
+            provider_config = tts_config.get(provider_name)
+            if not provider_config:
+                log.error(f"Configuration for TTS provider '{provider_name}' is missing.")
+                self._initialized = True
+                return
+            
+            try:
+                provider_class = _PROVIDER_CLASSES[provider_name]
+                self.provider = provider_class(provider_name, provider_config)
+                log.info(f"Successfully loaded TTS provider: '{provider_name}'")
+            except Exception as e:
+                log.error(f"Failed to load TTS provider '{provider_name}': {e}")
+                # As per requirement, exit if the chosen provider fails to load
+                sys.exit(1)
+        else:
+            log.error(f"Unknown TTS provider type configured: '{provider_name}'")
+            sys.exit(1)
 
         self._initialized = True
 
-    def get_provider(self, name: Optional[str] = None) -> Optional[BaseTtsProvider]:
-        if name:
-            return self.providers.get(name)
-        if self.default_provider_name:
-            return self.providers.get(self.default_provider_name)
-        return None
+    def get_provider(self) -> Optional[BaseTtsProvider]:
+        return self.provider
 
-    def _execute_with_failover(self, method_name: str, *args, **kwargs) -> Any:
-        if not self.ordered_providers:
-            log.error("No TTS providers available to execute the request.")
-            sys.exit(1)
-
-        last_exception = None
-        for provider_name in list(self.ordered_providers):
-            provider = self.providers.get(provider_name)
-            if not provider:
-                continue
-
-            try:
-                log.info(f"Attempting to use TTS provider: '{provider_name}'")
-                method: Callable = getattr(provider, method_name)
-                return method(*args, **kwargs)
-            except Exception as e:
-                last_exception = e
-                log.warning(f"TTS provider '{provider_name}' failed. Removing it from the available list for this task.")
-                self.ordered_providers.remove(provider_name)
+    def check_availability(self) -> bool:
+        """
+        Checks if the configured TTS provider is available by performing a test synthesis
+        that does not interact with the file system.
+        """
+        if not self.provider:
+            return False
         
-        log.error(f"All available TTS providers failed. Last error: {last_exception}")
-        sys.exit(1)
-
-    def check_availability(self, task_id: str) -> bool:
-        if not self.ordered_providers:
+        try:
+            log.info(f"Performing availability check for TTS provider '{self.provider.name}'...")
+            # Perform a test synthesis. task_id is None as no files will be written.
+            self.provider.synthesize("test", task_id=None, is_test=True)
+            log.success(f"TTS provider '{self.provider.name}' is available.")
+            return True
+        except Exception as e:
+            log.error(f"TTS availability check failed for provider '{self.provider.name}'.")
+            # Log the actual error for debugging, but maybe not in full detail to the user.
+            log.debug(f"Underlying error: {e}")
             return False
 
-        for provider_name in list(self.ordered_providers):
-            provider = self.providers.get(provider_name)
-            if not provider:
-                continue
-            try:
-                # Silently try to synthesize, providing a task_id
-                test_result = provider.synthesize("test", task_id=task_id, silent=True)
-                # Check for either a URL or a local path
-                if test_result and (test_result.get("url") or test_result.get("path")):
-                    return True
-            except Exception:
-                # Ignore exceptions during check, just try the next provider
-                continue
-        
-        # If loop completes, no provider was successful
-        return False
+    def synthesize(self, text: str, **kwargs) -> Dict:
+        if not self.provider:
+            log.error("No TTS provider available to execute the request.")
+            sys.exit(1)
 
-    def synthesize_with_failover(self, text: str, **kwargs) -> Dict:
-        return self._execute_with_failover('synthesize', text, **kwargs)
+        try:
+            log.info(f"Attempting to use TTS provider: '{self.provider.name}'")
+            return self.provider.synthesize(text, **kwargs)
+        except Exception as e:
+            log.error(f"TTS provider '{self.provider.name}' failed: {e}")
+            # As per requirement, exit if the synthesis fails
+            sys.exit(1)
 
     @property
     def default(self) -> Optional[BaseTtsProvider]:

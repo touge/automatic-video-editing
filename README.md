@@ -106,10 +106,67 @@ python composition.py -id "your-task-id" -a "path/to/your/audio.mp3" -s
 如果您希望通过 API 的方式来使用，可以运行 `api/main.py`：
 
 ```bash
-uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn src.api.main:app --host 0.0.0.0 --port 9001 --reload
+
+or
+
+python src/api/main.py --host 0.0.0.0 --port 9001 --reload
 ```
 
 启动后，您可以访问 `http://localhost:8000/docs` 查看 Swagger UI 和 API 文档。
+
+### API 端点
+
+以下是主要的 API 端点及其用法：
+
+#### 1. 分析场景并生成关键词
+
+- **URL**: `/tasks/{task_id}/analysis`
+- **方法**: `POST`
+- **描述**: 对指定任务执行场景分析和关键词生成。此端点将任务从“有字幕”阶段推进到“场景和关键词就绪”阶段，最终产出 `final_scenes.json` 文件。
+- **路径参数**:
+    - `task_id` (string, 必需): 任务的唯一标识符。
+- **请求头**:
+    - `Authorization`: `Bearer YOUR_TOKEN` (必需): 用于认证的 Bearer Token。
+- **请求体**: 无
+- **响应示例**:
+```json
+{
+  "task_id": "your-task-id",
+  "status": "success",
+  "message": "Scene analysis and keyword generation completed.",
+  "scenes_url": "http://localhost:8000/static/storage/tasks/your-task-id/final_scenes.json",
+  "summary": {
+    "scenes_count": 15
+  }
+}
+```
+
+#### 2. 合成最终视频
+
+- **URL**: `/tasks/{task_id}/compose`
+- **方法**: `POST`
+- **描述**: 将所有处理好的场景、素材和音频合成为最终的视频文件。此步骤要求 `final_scenes.json` 和 `final_audio.wav` 文件已存在于任务目录中。
+- **路径参数**:
+    - `task_id` (string, 必需): 任务的唯一标识符。
+- **请求头**:
+    - `Authorization`: `Bearer YOUR_TOKEN` (必需): 用于认证的 Bearer Token。
+- **请求体**:
+```json
+{
+  "embed_subtitles": true
+}
+```
+    - `embed_subtitles` (boolean, 可选): 是否将字幕硬编码到视频中。默认为 `true`。
+- **响应示例**:
+```json
+{
+  "task_id": "your-task-id",
+  "status": "success",
+  "message": "Video composition completed successfully.",
+  "video_url": "http://localhost:8000/static/storage/tasks/your-task-id/final_video.mp4"
+}
+```
 
 ## 目录结构
 

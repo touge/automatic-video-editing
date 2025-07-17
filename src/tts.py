@@ -20,7 +20,7 @@ class TTS:
         :return: A dictionary containing the result from the TTS provider.
         """
         # Pass task_id as a keyword argument to be included in **kwargs
-        return self.manager.synthesize_with_failover(text, task_id=task_id, **kwargs)
+        return self.manager.synthesize(text, task_id=task_id, **kwargs)
 
 # Create a global instance for easy access
 tts = TTS()

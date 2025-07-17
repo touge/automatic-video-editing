@@ -11,14 +11,14 @@ def main():
     parser.add_argument("-id", "--task-id", dest="task_id", required=False, default=None, help="Optional: Specify a task ID to resume or continue a task.")
     args = parser.parse_args()
 
-    # --- Step 1: Task Setup ---
-    task_manager = TaskManager(args.task_id)
-    
-    # --- Step 1.1: Check for TTS availability ---
+    # --- Step 1: Pre-flight Checks ---
     log.info("--- Checking TTS provider availability ---")
-    if not tts.manager.check_availability(task_id=task_manager.task_id):
+    if not tts.manager.check_availability():
         log.error("TTS service is not available. Please check your configuration and network. Aborting.")
         return
+
+    # --- Step 2: Task Setup ---
+    task_manager = TaskManager(args.task_id)
     if task_manager.is_new:
         log.success(f"New task created with ID: {task_manager.task_id}")
     else:

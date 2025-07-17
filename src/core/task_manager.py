@@ -84,3 +84,15 @@ class TaskManager:
         full_path.parent.mkdir(parents=True, exist_ok=True)
         
         return full_path.as_posix()
+
+    def save_script(self, script_content: bytes) -> str:
+        """
+        Saves the provided script content to the designated script file for the task.
+
+        :param script_content: The content of the script as bytes.
+        :return: The path to the saved script file.
+        """
+        script_path_str = self.get_file_path('original_doc')
+        with open(script_path_str, 'wb') as f:
+            f.write(script_content)
+        return script_path_str

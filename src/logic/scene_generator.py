@@ -9,6 +9,7 @@ from src.core.scene_splitter import SceneSplitter
 from src.keyword_generator import KeywordGenerator
 from src.logger import log
 from src.core.task_manager import TaskManager
+from src.core.fix_subtitle_timing import FixSubtitleTiming
 
 class SceneGenerator:
     @classmethod
@@ -57,8 +58,8 @@ class SceneGenerator:
 
         srt_path = self.task_manager.get_file_path('final_srt')
         if not os.path.exists(srt_path):
-            log.error(f"SRT file not found for this task: {srt_path}")
-            return
+            # Raise an exception instead of silently returning
+            raise FileNotFoundError(f"Required SRT file not found for this task: {srt_path}")
 
         segments = self._parse_srt()
         if not segments: return
@@ -99,7 +100,6 @@ class SceneGenerator:
         :param srt_path: SRT文件路径
         :return: 一个包含字幕段落的列表，格式与Whisper输出兼容。
         """
-        # print(f"正在解析SRT文件: {srt_path}")
         segments = []
         try:
             with open(srt_path, 'r', encoding='utf-8') as f:
@@ -108,6 +108,13 @@ class SceneGenerator:
             log.error(f"字幕文件未找到 at {srt_path}")
             return []
         
+        # print(f"正在解析SRT文件:\n-------\n {content}\n----------\n")
+
+        # 添加人上时间误差修正
+        content = FixSubtitleTiming.fix(content)
+        # print(f"修正：\n{fixed_content}\n")
+        # import sys; sys.exit(0)
+
         # 使用正则表达式匹配SRT块
         srt_blocks = re.finditer(
             r'\d+\n(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})\n([\s\S]*?)(?=\n\n|\Z)',

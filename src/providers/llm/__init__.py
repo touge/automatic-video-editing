@@ -1,7 +1,6 @@
 import sys
 from .base import BaseLlmProvider
 from .ollama import OllamaProvider
-from .gemini import GeminiProvider
 from .siliconflow import SiliconflowProvider
 from .openai import OpenAIProvider
 from src.logger import log
@@ -10,7 +9,7 @@ from typing import Dict, Optional, List, Any, Callable
 # 映射提供者名称到其类
 _PROVIDER_CLASSES = {
     'ollama': OllamaProvider,
-    'gemini': GeminiProvider,
+    # 'gemini': GeminiProvider,
     'siliconflow': SiliconflowProvider,
     'openai': OpenAIProvider,
 }

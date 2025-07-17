@@ -29,6 +29,7 @@ PyYAML
 
 # Other
 requests
+httpx
 ollama
 google-generativeai
 openai

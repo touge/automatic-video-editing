@@ -68,7 +68,7 @@ class AudioProcessor:
 
 
 class AudioPreprocessor:
-    def __init__(self, task_id: str, doc_file: str):
+    def __init__(self, task_id: str, doc_file: str, _from_api: bool = False):
         if not task_id or not doc_file:
             raise ValueError("task_id and doc_file must be provided.")
         if not os.path.exists(doc_file):
@@ -76,11 +76,13 @@ class AudioPreprocessor:
 
         self.task_manager = TaskManager(task_id)
         self.doc_file = doc_file
+        self.is_api_call = _from_api
 
     def run(self):
         log.info(f"--- Starting Audio Preprocessing for Task ID: {self.task_manager.task_id} ---")
         
         try:
+            # The main run method for the CLI, without custom TTS parameters.
             segments = self._process_document_for_tts()
             if not segments: return
 
@@ -100,6 +102,60 @@ class AudioPreprocessor:
             # Re-raise to ensure the main script knows about the failure.
             raise
 
+    def run_synthesis_only(self, **tts_kwargs) -> str:
+        """
+        Runs the audio synthesis and combination parts of the pipeline.
+        Allows passing custom arguments to the TTS provider.
+        Returns the path to the final combined audio file.
+        """
+        log.info(f"--- Starting Audio Synthesis for Task ID: {self.task_manager.task_id} ---")
+        try:
+            segments = self._process_document_for_tts()
+            if not segments:
+                raise ValueError("No text segments found to synthesize.")
+            
+            self._synthesize_audio_segments(segments, **tts_kwargs)
+            
+            final_audio_path = self.task_manager.get_file_path('final_audio')
+            if not self._combine_audio_segments(len(segments), final_audio_path):
+                raise RuntimeError("Failed to combine audio segments.")
+
+            log.success("Audio synthesis and combination completed successfully.")
+            return final_audio_path
+        except Exception as e:
+            log.error(f"Audio synthesis pipeline failed: {e}", exc_info=True)
+            raise
+
+    def run_subtitles_generation(self) -> str:
+        """
+        Runs only the subtitle generation part of the pipeline.
+        Assumes that final_audio.wav already exists.
+        Returns the path to the final SRT file.
+        """
+        log.info(f"--- Starting Subtitle Generation for Task ID: {self.task_manager.task_id} ---")
+        try:
+            final_audio_path = self.task_manager.get_file_path('final_audio')
+            if not os.path.exists(final_audio_path):
+                raise FileNotFoundError(f"Final audio file not found for this task: {final_audio_path}")
+            
+            self._generate_subtitles(final_audio_path)
+            
+            srt_path = self.task_manager.get_file_path('final_srt')
+            log.success(f"Subtitle generation completed successfully. SRT file at: {srt_path}")
+            return srt_path
+        except Exception as e:
+            log.error(f"Subtitle generation pipeline failed: {e}", exc_info=True)
+            raise
+
+    def save_final_audio(self, audio_content: bytes):
+        """
+        Saves the provided audio content directly as final_audio.wav, overwriting if it exists.
+        """
+        final_audio_path = self.task_manager.get_file_path('final_audio')
+        with open(final_audio_path, 'wb') as f:
+            f.write(audio_content)
+        log.info(f"Saved provided audio content to {final_audio_path}")
+
     def _download_file(self, url: str, destination: str) -> bool:
         try:
             response = requests.get(url, stream=True)
@@ -114,8 +170,13 @@ class AudioPreprocessor:
 
     def _process_document_for_tts(self) -> List[str]:
         log.info("--- Step 2.1: Processing document for TTS ---")
-        shutil.copy(self.doc_file, self.task_manager.get_file_path('original_doc'))
-        log.success("Cached original document.")
+        
+        # For the CLI workflow, copy the external script into the task directory.
+        # For the API workflow, the script is already in place.
+        if not self.is_api_call:
+            shutil.copy(self.doc_file, self.task_manager.get_file_path('original_doc'))
+            log.success("Cached original document.")
+
         with open(self.doc_file, 'r', encoding='utf-8') as f:
             content = f.read()
         segments = [seg.strip() for seg in content.split('\n\n') if seg.strip()]
@@ -129,15 +190,19 @@ class AudioPreprocessor:
         log.success("All TTS text segments cached.")
         return segments
 
-    def _synthesize_audio_segments(self, segments: List[str]):
+    def _synthesize_audio_segments(self, segments: List[str], **tts_kwargs):
         log.info("--- Step 2.2: Synthesizing audio for each segment ---")
+        # Add the task_id to the kwargs for the TTS call, ensuring it's always present.
+        tts_kwargs['task_id'] = self.task_manager.task_id
+
         for i, segment_text in enumerate(tqdm(segments, desc="Synthesizing Audio")):
             audio_segment_path = self.task_manager.get_file_path('audio_segment', index=i)
             if os.path.exists(audio_segment_path):
                 continue
             
             try:
-                response = tts.synthesize(segment_text, task_id=self.task_manager.task_id)
+                # Pass the combined kwargs to the synthesis function
+                response = tts.synthesize(segment_text, **tts_kwargs)
                 
                 # 检查是返回了URL还是本地路径
                 if 'url' in response and response['url']:

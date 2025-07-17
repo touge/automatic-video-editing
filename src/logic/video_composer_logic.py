@@ -142,7 +142,7 @@ class VideoComposition:
             # 优先使用子场景的 source_text，如果不存在，则回退到父场景的文本
             context_text = shot.get('source_text', shot.get('parent_scene_text', ''))
             temp_scene_for_asset_manager = {
-                "keywords_en": keywords,
+                "keys": keywords, # 使用 'keys' 字段
                 "text": context_text
             }
 

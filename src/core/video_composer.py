@@ -282,26 +282,25 @@ class VideoComposer:
                     log.warning(f"Audio file {audio_path} not found. Final video will be silent.")
                     shutil.copy(concatenated_video_path, video_with_audio_path)
                 else:
-                    # 移除 -c:v copy 并指定编码器，以确保 -shortest 参数可靠工作
-                    codec, extra_args, _ = self._detect_video_encoder()
+                    # 使用 ffprobe 获取音频时长，作为进度条的总时长和视频输出时长
+                    audio_duration = self._get_media_duration(audio_path)
+                    if audio_duration is None:
+                        log.warning("无法获取音频时长，进度条和视频时长可能不准确。回退到使用视频总时长。")
+                        audio_duration = total_duration
+
+                    # 确保视频时长与音频时长一致，移除 -shortest 参数
                     merge_cmd = [
                         'ffmpeg', '-y',
                         '-i', concatenated_video_path,
                         '-i', audio_path,
-                        '-c:v', codec, *extra_args,
+                        '-c:v', 'libx264', '-preset', 'veryfast', # 明确指定软件编码器
                         '-c:a', 'aac',
                         '-map', '0:v:0',
                         '-map', '1:a:0',
-                        '-shortest',
+                        '-t', str(audio_duration), # 强制视频时长与音频时长一致
                         video_with_audio_path
                     ]
                     try:
-                        # 使用 ffprobe 获取音频时长，作为进度条的总时长
-                        audio_duration = self._get_media_duration(audio_path)
-                        if audio_duration is None:
-                            # 如果无法获取音频时长，就回退到使用视频总时长
-                            log.warning("无法获取音频时长，进度条可能不准确。")
-                            audio_duration = total_duration
                         self._run_ffmpeg_with_progress(merge_cmd, audio_duration, "Merging Audio")
                     except CalledProcessError:
                         log.error("Failed to merge audio.")
