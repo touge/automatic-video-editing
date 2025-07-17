@@ -35,6 +35,3 @@ openai
 colorama
 rich
 pydub
-optimum[onnxruntime]
-cn2an
-thefuzz

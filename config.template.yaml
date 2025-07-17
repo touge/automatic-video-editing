@@ -1,12 +1,10 @@
 # API Keys & Services
 # -------------------
 
-# ==============================================================================
-# AI 智能搜索配置
-# ==============================================================================
+# AI 智能搜索配置 (新增)
 ai_search:
-  api_key: "YOUR_AI_SEARCH_API_KEY"  # 替换为你的 API 密钥
-  api_url: "http://127.0.0.1:8004/api/videos/text"  # 替换为你的 API 端点
+  api_key: "YOUR_AI_SEARCH_API_KEY"  # 您的 AI 搜索服务 API 密钥
+  api_url: "YOUR_AI_SEARCH_API_URL"  # 您的 AI 搜索服务 API 端点 URL, e.g., "http://127.0.0.1:8004/api/videos/text"
 
 # Pexels API配置
 # 获取API Key: https://www.pexels.com/api/
@@ -22,46 +20,52 @@ pixabay:
 
 # LLM服务提供商配置
 llm_providers:
-  default: "ollama"  # 设置默认使用的LLM服务
+  default: "siliconflow"  # 主要控制点：明确指定默认提供者
 
   ollama:
-    enabled: true
+    enabled: false
     models:
       - "qwen3:14b-q8_0"
     host: "http://127.0.0.1:11434"
     remark: "本地模型服务，适用于关键词提取和场景分割"
 
   siliconflow:
-    enabled: false
+    enabled: true
     api_key: "YOUR_SILICONFLOW_API_KEY"
     models:
       - "Qwen/Qwen3-14B"
+      - "Qwen/Qwen3-8B"
     host: "https://api.siliconflow.cn/v1"
     remark: "硅基流动, 用于生成视频脚本和关键词"
+
+  gemini:
+    enabled: false
+    api_key: "YOUR_GEMINI_API_KEY"
+    models:
+      - "gemini-1.5-pro-latest"
+    remark: "Google Gemini，用作备用关键词提取方案"
 
   openai:
     enabled: false
     api_key: "YOUR_OPENAI_API_KEY"
-    base_url: "YOUR_OPENAI_API_ENDPOINT"
+    base_url: "YOUR_OPENAI_COMPATIBLE_ENDPOINT" # or your custom endpoint, e.g., https://api.openai.com/v1
     models:
-      - "gpt-3.5-turbo"
-      - "gpt-4"
+      - "gemini-2.5-pro"
+      - "gemini-2.5-flash"
+      - "gemini-1.5-pro"
     remark: "OpenAI, for high-quality text generation"
 
 # API服务器配置
 api_server:
-  secret_key: "CHANGE_THIS_TO_A_SECURE_KEY"  # 使用安全的随机字符串
+  secret_key: "CHANGE_THIS_TO_A_SECURE_KEY"  # 请修改为一个更长、更随机的安全密钥，例如通过密码管理器生成
 
 # 视频输出设置
 video:
   width: 1920
   height: 1080
   fps: 30
-  max_clip_duration: 8.0
-  min_clip_duration: 3.0
-  
   subtitles:
-    font_dir: "assets/fonts"
+    font_dir: "assets/fonts" # 包含自定义字体文件 (.ttf, .otf) 的目录的路径。 FFmpeg/libass 将会在此目录中查找字体。
     font_name: "港风繁体-方正粗宋繁体"
     font_size: 24
     primary_color: "&H00FFFFFF"
@@ -71,11 +75,11 @@ video:
     shadow: 0
     spacing: 0.5
     alignment: 2
-    vertical_margin: 30
+    vertical_margin: 30 # 垂直边距 (像素)。对于底部对齐，这是字幕距离视频底部的距离。增加此值可将字幕向上推。
 
 # 文件路径配置
 paths:
-  task_folder: "storage/tasks"
+  task_folder: "tasks"
   local_assets_dir: "storage/local"
   local_models: 
     base_path: "models"
@@ -86,9 +90,9 @@ paths:
 
 # 素材搜索策略
 asset_search:
-  online_search_count: 15
-  max_keyword_retries: 2
-  request_delay_seconds: 1
+  online_search_count: 5 # 每次在线搜索时，向Pexels或Pixabay请求的素材数量。
+  max_keyword_retries: 3 # 在关键词用尽后，调用LLM生成新关键词的最大重试次数。
+  request_delay_seconds: 3 # 两次在线API请求之间的最小间隔时间（秒）。
   fallback_en:
     - healthy lifestyle
     - wellness routine
@@ -101,8 +105,8 @@ asset_search:
 # 场景检测参数
 scene_detection:
   splitter:
-    chunk_size: 50
-    overlap: 10
+    chunk_size: 50 # LLM一次处理的字幕行数。
+    overlap: 10 # 区块之间的重叠行数，以确保上下文连续性。
 
 # 提示词工程
 prompts:
@@ -111,7 +115,7 @@ prompts:
   asset_keyword_generator: "assets/prompts/asset_keyword_generator.yaml"
 
 # 常规设置
-debug: false
+debug: false # 设置为 true 以在视频合成时启用详细的 ffmpeg 日志，便于排查问题。
 
 # 日志配置
 logging:
@@ -124,14 +128,14 @@ tts_providers:
   
   cosyvoice:
     enabled: true
-    base_endpoint: "YOUR_COSYVOICE_ENDPOINT"
-    api_key: "YOUR_COSYVOICE_API_KEY"
+    base_endpoint: "YOUR_COSYVOICE_ENDPOINT" # e.g., "http://192.168.0.253:8002"
+    api_key: "YOUR_COSYVOICE_API_KEY" # Optional, if your service requires an API key
     default_speaker: "台湾-中年医生-男"
     remark: "CosyVoice TTS service"
 
   siliconflow:
     enabled: false
-    api_key: "YOUR_SILICONFLOW_API_KEY"
+    api_key: "YOUR_SILICONFLOW_TTS_API_KEY"
     host: "https://api.siliconflow.cn"
     models:
       - "FunAudioLLM/CosyVoice2-0.5B"
