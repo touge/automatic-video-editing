@@ -24,7 +24,6 @@ python3*
 aaa/*
 storage/*
 models/*
-input/*
 output/*
 feiqi/*
 tests/*
