@@ -30,3 +30,5 @@ feiqi/*
 tests/*
 api-/*
 tasks/*
+models*
+models/*
