@@ -80,6 +80,16 @@ api_server:
 
 # Video Output Settings
 # ---------------------
+composition_settings:
+  # (新增) 子场景（镜头）的最小持续时间（秒）。
+  # LLM生成的所有子场景时长都不得低于此值。
+  # 代码中也会有后处理逻辑，以确保最终所有镜头都满足此要求。
+  min_duration: 3
+  size: 
+    width: 1920
+    height: 1080
+  fps: 30
+
 video:
   width: 1920
   height: 1080
@@ -129,10 +139,10 @@ paths:
 asset_search:
   # 每次在线搜索时，向Pexels或Pixabay请求的素材数量。
   # 增加此值可以提高找到合适素材的几率，但会消耗更多API配额。
-  online_search_count: 5
+  online_search_count: 10
 
   # 在关键词用尽后，调用Ollama生成新关键词的最大重试次数。
-  max_keyword_retries: 3
+  # max_keyword_retries: 3
 
   # (新增) 两次在线API请求之间的最小间隔时间（秒）。
   # 用于防止因请求过于频繁而被服务商限制。

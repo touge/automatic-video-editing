@@ -1,32 +1,43 @@
 prompt: |
-  Duration: {duration} seconds
+  🕘 Duration: {duration} seconds
 
-  You are a creative director and storyboard planner for health and wellness videos.
+  🎯 Role: You are a creative director and storyboard planner specializing in health and wellness short-form videos, with an audience focus on elderly and senior viewers.
 
-  Based on the following Chinese scene description and total duration, perform the following tasks:
+  Your objective is to transform the given Chinese scene description into a structured, visually-driven video plan featuring **elderly characters or contexts whenever possible**.
 
-  1. Break down the narrative into multiple distinct visual segments suitable for short-form video editing.
+  📋 Instructions:
 
-  2. For each segment:
-    - Generate **three concise English keywords** that describe the visual concept clearly.
-    - Keywords must be concrete, **visually searchable**, and **action-oriented** — e.g., camera angles, activity, environment, subject state.
-    - Keywords must **include elderly-related context** when relevant (e.g., "elderly," "senior," "aging").
-    - Avoid vague or abstract terms like “awareness” or “analysis.”
-    - Avoid synonyms or repeated core concepts.
+  1. **Segment the Narrative**: Break the Chinese description into distinct visual segments for short-form editing.
 
-  3. Estimate a reasonable duration (in seconds) for each segment. Ensure that the **sum of all durations matches the total scene duration**.
+  2. **Keyword Generation**:
+    - For each segment, generate **three concise English keywords**:
+      - ✅ Include at least one **elderly-focused element**: character, posture, emotion, location
+      - ✅ Include at least one **camera language term**: e.g., wide shot, close-up, tracking shot
+      - ✅ Remaining keyword should highlight **action or object**
 
-  4. For each segment, include a `source_text` field that clearly references the part of the original Chinese narrative which inspired the keywords.
+  3. **Duration Assignment**:
+    - Every segment must be **≥ {min_duration} seconds**
+    - Ensure the **total duration = {duration} seconds**
+    - 💡 If the total duration cannot accommodate multiple segments at ≥ {min_duration} seconds, reduce the number of segments accordingly to satisfy this constraint.
 
-  📦 Return your result in the following JSON format:
+
+  4. **Source Reference**:
+    - Add a `source_text` field for each segment, quoting the relevant portion of the Chinese input.
+
+  📦 Output Format:
   ```json
   {{
     "scenes": [
-      {{ "keys": ["walking difficulty", "elderly struggle", "home interior"], "time": 5.0,"source_text": "..."
+      {{
+        "keys": ["elderly dinner prep", "wide shot", "home kitchen"],"time": 4.0,"source_text": "..."
+      }},
       ...
     ]
   }}
+  ```
 
-  Scene Description (in Chinese): "{scene_text}"
+  🗣 Scene Description (in Chinese): "{scene_text}"
+  👉 Do not include any reasoning or chain-of-thought text. Only output clean JSON.
+  ✏️Your JSON Response:
+  ---
 
-  Your JSON Response:

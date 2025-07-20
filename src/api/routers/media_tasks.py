@@ -1,176 +1,79 @@
 import os
 import sys
-import base64
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Body, Request, BackgroundTasks
-from typing import Optional, Literal, Dict, Any
+from fastapi import APIRouter, Depends, HTTPException, Body, BackgroundTasks
 from pydantic import BaseModel
-from starlette.responses import FileResponse
-import httpx
-
-from src.core.task_manager import TaskManager
-from src.logic.audio_preprocessor import AudioPreprocessor
-from src.api.security import verify_token
-from src.logger import log
+from typing import Literal
 
 # Add project root to the Python path to allow module imports
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
+from src.core.task_manager import TaskManager
+from src.logic.video_composer_logic import VideoCompositionLogic
+from src.api.security import verify_token
+from src.logger import log
+from starlette.concurrency import run_in_threadpool
+
 router = APIRouter(
     prefix="/tasks",
-    tags=["Tasks - 媒体生成与处理"],
+    tags=["Composition Steps - 视频分步合成"],
     dependencies=[Depends(verify_token)]
 )
 
-class TtsParams(BaseModel):
-    speaker: Optional[str] = None
-    speed: Optional[float] = None
-    response_format: Literal["url", "base64", "binary"] = "url"
+class AssembleParams(BaseModel):
+    stage: Literal["silent", "audio", "full"] = "full"
 
-# Helper function to get relative URL path
-def _get_relative_url_path(file_path: str) -> str:
-    relative_path = os.path.relpath(file_path, start=project_root)
-    return f"static/{relative_path.replace(os.path.sep, '/')}"
-
-async def _generate_audio_task(task_id: str, tts_params: TtsParams, request_base_url: str):
-    """Background task for generating audio."""
+async def _prepare_assets_task(task_id: str):
     task_manager = TaskManager(task_id)
     try:
-        task_manager.update_task_status(TaskManager.STATUS_RUNNING, {"message": "Audio generation in progress."})
-        script_path = task_manager.get_file_path('original_doc')
-        preprocessor = AudioPreprocessor(task_id=task_id, doc_file=script_path, _from_api=True)
-        
-        tts_kwargs = tts_params.dict(exclude_none=True)
-        tts_kwargs.pop("response_format", None) 
-        final_audio_path = preprocessor.run_synthesis_only(**tts_kwargs)
-        
-        audio_url = f"{request_base_url.rstrip('/')}/{_get_relative_url_path(final_audio_path)}"
-        
-        task_manager.update_task_status(
-            TaskManager.STATUS_SUCCESS,
-            {"message": "Audio generated successfully.", "audio_url": audio_url, "final_audio_path": final_audio_path}
-        )
-        log.info(f"Audio generation for task '{task_id}' completed successfully.")
+        task_manager.update_task_status(TaskManager.STATUS_RUNNING, step="asset_preparation", details={"message": "Asset preparation in progress."})
+        logic = VideoCompositionLogic(task_id)
+        await run_in_threadpool(logic.prepare_all_assets)
+        task_manager.update_task_status(TaskManager.STATUS_SUCCESS, step="asset_preparation", details={"message": "Asset preparation completed."})
     except Exception as e:
-        log.error(f"Background audio generation for task '{task_id}' failed: {e}", exc_info=True)
-        task_manager.update_task_status(
-            TaskManager.STATUS_FAILED,
-            {"message": f"Audio generation failed: {e}", "error": str(e)}
-        )
+        log.error(f"Asset preparation for task '{task_id}' failed: {e}", exc_info=True)
+        task_manager.update_task_status(TaskManager.STATUS_FAILED, step="asset_preparation", details={"message": f"Asset preparation failed: {e}", "error": str(e)})
 
-@router.post("/{task_id}/audio", summary="为指定任务生成音频 (异步)")
-async def generate_audio(
-    task_id: str,
-    background_tasks: BackgroundTasks,
-    request: Request,
-    tts_params: TtsParams = Body(TtsParams(), description="可选的TTS参数及响应格式。")
-):
-    """
-    根据任务的脚本，为指定的任务异步生成音频。
-    此操作会合成并合并所有音频片段，生成 final_audio.wav。
-    客户端应轮询 /tasks/{task_id}/status 接口以获取任务状态和结果。
-    """
-    try:
-        task_manager = TaskManager(task_id)
-        script_path = task_manager.get_file_path('original_doc')
-        if not os.path.exists(script_path):
-            raise HTTPException(status_code=404, detail=f"Script for task_id '{task_id}' not found. Please create task first.")
-
-        background_tasks.add_task(_generate_audio_task, task_id, tts_params, str(request.base_url))
-        
-        task_manager.update_task_status(TaskManager.STATUS_PENDING, {"message": "Audio generation task submitted."})
-        
-        return {
-            "task_id": task_id,
-            "status": TaskManager.STATUS_PENDING,
-            "message": "Audio generation task submitted. Please poll /tasks/{task_id}/status for updates."
-        }
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"Task or script for task_id '{task_id}' not found.")
-    except Exception as e:
-        log.error(f"Failed to submit audio generation task for '{task_id}': {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"An internal error occurred: {e}")
-
-async def _generate_subtitles_task(task_id: str, audio_input_data: Dict[str, Any], request_base_url: str):
-    """Background task for generating subtitles."""
+async def _assemble_video_task(task_id: str, stage: str, burn_subtitle: bool):
     task_manager = TaskManager(task_id)
     try:
-        task_manager.update_task_status(TaskManager.STATUS_RUNNING, {"message": "Subtitle generation in progress."})
-        script_path = task_manager.get_file_path('original_doc')
-        preprocessor = AudioPreprocessor(task_id=task_id, doc_file=script_path, _from_api=True)
-
-        audio_content = None
-        if audio_input_data.get("audio_file"):
-            log.info(f"Processing provided audio file for task '{task_id}'.")
-            audio_content = audio_input_data["audio_file"]
-        elif audio_input_data.get("audio_url"):
-            log.info(f"Downloading audio from URL for task '{task_id}'.")
-            async with httpx.AsyncClient() as client:
-                response = await client.get(audio_input_data["audio_url"], follow_redirects=True)
-                response.raise_for_status()
-                audio_content = response.content
-        elif audio_input_data.get("audio_base64"):
-            log.info(f"Decoding Base64 audio for task '{task_id}'.")
-            audio_content = base64.b64decode(audio_input_data["audio_base64"])
-        
-        if audio_content:
-            preprocessor.save_final_audio(audio_content)
-        
-        srt_path = preprocessor.run_subtitles_generation()
-        
-        srt_url = f"{request_base_url.rstrip('/')}/{_get_relative_url_path(srt_path)}"
-        
-        task_manager.update_task_status(
-            TaskManager.STATUS_SUCCESS,
-            {"message": "Subtitles generated successfully.", "srt_url": srt_url, "final_srt_path": srt_path}
-        )
-        log.info(f"Subtitle generation for task '{task_id}' completed successfully.")
+        task_manager.update_task_status(TaskManager.STATUS_RUNNING, step=f"assembly_{stage}", details={"message": f"Video assembly for stage '{stage}' in progress."})
+        logic = VideoCompositionLogic(task_id)
+        await run_in_threadpool(logic.run_assembly_stage, stage=stage, burn_subtitle=burn_subtitle)
+        task_manager.update_task_status(TaskManager.STATUS_SUCCESS, step=f"assembly_{stage}", details={"message": f"Video assembly for stage '{stage}' completed."})
     except Exception as e:
-        log.error(f"Background subtitle generation for task '{task_id}' failed: {e}", exc_info=True)
-        task_manager.update_task_status(
-            TaskManager.STATUS_FAILED,
-            {"message": f"Subtitle generation failed: {e}", "error": str(e)}
-        )
+        log.error(f"Video assembly for task '{task_id}' stage '{stage}' failed: {e}", exc_info=True)
+        task_manager.update_task_status(TaskManager.STATUS_FAILED, step=f"assembly_{stage}", details={"message": f"Video assembly failed: {e}", "error": str(e)})
 
-@router.post("/{task_id}/subtitles", summary="为指定任务生成字幕 (异步)")
-async def generate_subtitles(
-    task_id: str,
-    background_tasks: BackgroundTasks,
-    request: Request,
-    audio_file: Optional[UploadFile] = File(None, description="可选的音频文件，将覆盖任务中现有的 final_audio.wav。"),
-    audio_url: Optional[str] = Form(None, description="可选的音频文件URL，将下载并覆盖任务中现有的 final_audio.wav。"),
-    audio_base64: Optional[str] = Form(None, description="可选的Base64编码的音频数据，将解码并覆盖。")
-):
+@router.post("/{task_id}/assets", summary="准备所有视频素材 (异步)")
+async def prepare_assets(task_id: str, background_tasks: BackgroundTasks):
     """
-    为指定任务的音频文件异步生成SRT字幕。
-    客户端应轮询 /tasks/{task_id}/status 接口以获取任务状态和结果。
+    **第1步**: 为 `final_scenes.json` 中的所有子场景查找、下载并验证视频素材。
+    
+    - **输入**: `final_scenes.json`
+    - **输出**: 一个新的 `final_scenes_assets.json` 文件，其中包含了所有子场景及其匹配到的 `asset_path`。
     """
-    try:
-        task_manager = TaskManager(task_id)
-        script_path = task_manager.get_file_path('original_doc')
-        if not os.path.exists(script_path):
-            raise HTTPException(status_code=404, detail=f"Script for task_id '{task_id}' not found. Please create task first.")
+    task_manager = TaskManager(task_id)
+    background_tasks.add_task(_prepare_assets_task, task_id)
+    task_manager.update_task_status(TaskManager.STATUS_PENDING, {"message": "Asset preparation task submitted."})
+    return {"task_id": task_id, "status": "PENDING", "message": "Asset preparation task submitted."}
 
-        audio_input_data = {}
-        if audio_file:
-            audio_input_data["audio_file"] = await audio_file.read()
-        elif audio_url:
-            audio_input_data["audio_url"] = audio_url
-        elif audio_base64:
-            audio_input_data["audio_base64"] = base64.b64decode(audio_base64)
-
-        background_tasks.add_task(_generate_subtitles_task, task_id, audio_input_data, str(request.base_url))
-        
-        task_manager.update_task_status(TaskManager.STATUS_PENDING, {"message": "Subtitle generation task submitted."})
-
-        return {
-            "task_id": task_id,
-            "status": TaskManager.STATUS_PENDING,
-            "message": "Subtitle generation task submitted. Please poll /tasks/{task_id}/status for updates."
-        }
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"Task, script, or final_audio.wav for task_id '{task_id}' not found.")
-    except Exception as e:
-        log.error(f"Failed to submit subtitle generation task for '{task_id}': {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"An internal error occurred: {e}")
+@router.post("/{task_id}/assemble", summary="分阶段合成视频 (异步)")
+async def assemble_video(task_id: str, background_tasks: BackgroundTasks, params: AssembleParams = Body(AssembleParams())):
+    """
+    **第2步**: 执行视频合成。可以分阶段进行以方便调试。
+    
+    - **输入**: `final_scenes_assets.json` 和 `final_audio.wav`
+    - **输出**: 根据 `stage` 参数，生成相应的中间或最终视频文件。
+        - `silent`: 只拼接视频片段，生成一个无声的视频 (`silent_video.mp4`)。
+        - `audio`: 在无声视频的基础上，合并音频 (`video_with_audio.mp4`)。
+        - `full`: 在有声视频的基础上，烧录字幕，生成最终版 (`final_video.mp4`)。
+    """
+    task_manager = TaskManager(task_id)
+    # For now, burn_subtitle is hardcoded to True for the 'full' stage.
+    # This could be made a parameter in the future.
+    burn_subtitle = True if params.stage == "full" else False
+    background_tasks.add_task(_assemble_video_task, task_id, params.stage, burn_subtitle)
+    task_manager.update_task_status(TaskManager.STATUS_PENDING, {"message": f"Video assembly task for stage '{params.stage}' submitted."})
+    return {"task_id": task_id, "status": "PENDING", "message": f"Video assembly task for stage '{params.stage}' submitted."}

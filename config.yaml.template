@@ -1,30 +1,29 @@
 # API Keys & Services
 # -------------------
 
-# ==============================================================================
 # AI 智能搜索配置 (新增)
-# ==============================================================================
 ai_search:
-  # 您的 AI 搜索服务 API 密钥
-  api_key: "YOUR_AI_SEARCH_API_KEY"
-  # 您的 AI 搜索服务 API 端点 URL
-  api_url: "http://127.0.0.1:8004/api/videos/text"
+  api_key: "YOUR_AI_SEARCH_API_KEY"  # 您的 AI 搜索服务 API 密钥
+  api_url: "YOUR_AI_SEARCH_API_URL"  # 您的 AI 搜索服务 API 端点 URL, e.g., "http://127.0.0.1:8004/api/videos/text"
 
-# 前往 https://www.pexels.com/api/ 获取你的免费API Key
+# Pexels API配置
+# 获取API Key: https://www.pexels.com/api/
 pexels:
   api_host: "https://api.pexels.com"
-  api_key: "YOUR_PEXELS_API_KEY"
+  api_key: "YOUR_PEXELS_API_KEY"  # 替换为你的 Pexels API Key
 
-# 前往 https://pixabay.com/api/docs/ 获取你的免费API Key
+# Pixabay API配置
+# 获取API Key: https://pixabay.com/api/docs/
 pixabay:
   api_host: "https://pixabay.com"
-  api_key: "YOUR_PIXABAY_API_KEY"
+  api_key: "YOUR_PIXABAY_API_KEY"  # 替换为你的 Pixabay API Key
 
+# LLM服务提供商配置
 llm_providers:
-  default: "ollama"  # 当前默认使用哪个服务
+  default: "siliconflow"  # 主要控制点：明确指定默认提供者
 
   ollama:
-    enabled: true
+    enabled: false
     models:
       - "qwen3:14b-q8_0"
     host: "http://127.0.0.1:11434"
@@ -32,14 +31,15 @@ llm_providers:
 
   siliconflow:
     enabled: true
-    api_key: "YOUR_SILICONFLOW_API_KEY"  # 请替换为您的 API Key
+    api_key: "YOUR_SILICONFLOW_API_KEY"
     models:
       - "Qwen/Qwen3-14B"
+      - "Qwen/Qwen3-8B"
     host: "https://api.siliconflow.cn/v1"
     remark: "硅基流动, 用于生成视频脚本和关键词"
 
   gemini:
-    enabled: true
+    enabled: false
     api_key: "YOUR_GEMINI_API_KEY"
     models:
       - "gemini-1.5-pro-latest"
@@ -48,60 +48,39 @@ llm_providers:
   openai:
     enabled: false
     api_key: "YOUR_OPENAI_API_KEY"
-    base_url: "https://api.openai.com/v1" # or your custom endpoint
+    base_url: "YOUR_OPENAI_COMPATIBLE_ENDPOINT" # or your custom endpoint, e.g., https://api.openai.com/v1
     models:
-      - "gpt-4o"
-      - "gpt-4-turbo"
-      - "gpt-3.5-turbo"
+      - "gemini-2.5-pro"
+      - "gemini-2.5-flash"
+      - "gemini-1.5-pro"
     remark: "OpenAI, for high-quality text generation"
 
+# API服务器配置
 api_server:
-  # 请修改为一个更长、更随机的安全密钥，例如通过密码管理器生成
-  secret_key: "YOUR_SECRET_KEY"
+  secret_key: "CHANGE_THIS_TO_A_SECURE_KEY"  # 请修改为一个更长、更随机的安全密钥，例如通过密码管理器生成
 
-# Video Output Settings
-# ---------------------
+# 视频输出设置
 video:
   width: 1920
   height: 1080
   fps: 30
-  # 单个视频片段在场景中的最大时长（秒）。
-  max_clip_duration: 8.0
-  # 单个视频片段的最小市场（秒）。
-  min_clip_duration: 3.0
-
-  # 字幕样式配置 (可选)
   subtitles:
-    # 包含自定义字体文件 (.ttf, .otf) 的目录的路径。
-    # FFmpeg/libass 将会在此目录中查找字体。
-    font_dir: "assets/styles/fonts"
-    # 要使用的字体名称 (必须是字体文件名或字体内部定义的名称)。
-    font_name: "方正粗雅宋长繁体"
-    # 字幕的字体大小。
+    font_dir: "assets/fonts" # 包含自定义字体文件 (.ttf, .otf) 的目录的路径。 FFmpeg/libass 将会在此目录中查找字体。
+    font_name: "港风繁体-方正粗宋繁体"
     font_size: 24
-    # 字幕的主要颜色 (ASS格式，例如 &H00FFFFFF 表示白色)。
     primary_color: "&H00FFFFFF"
-    # 边框/描边的颜色 (ASS格式, &H00000000 表示黑色)。
     outline_color: "&H00000000"
-    # 边框样式。1=带阴影的边框, 3=不透明背景框。
     border_style: 1
-    # 边框/描边的宽度 (像素)。
     outline: 1
-    # 阴影的深度 (像素)。
     shadow: 0
-    # 字符间距 (像素)。
     spacing: 0.5
-    # 字幕对齐方式 (使用数字小键盘布局): 1=左下, 2=中下, 3=右下, 5=中中, 8=中上, etc.
     alignment: 2
-    # 垂直边距 (像素)。对于底部对齐，这是字幕距离视频底部的距离。增加此值可将字幕向上推。
-    vertical_margin: 30
+    vertical_margin: 30 # 垂直边距 (像素)。对于底部对齐，这是字幕距离视频底部的距离。增加此值可将字幕向上推。
 
-# File Paths
-# ----------
+# 文件路径配置
 paths:
-  # 你的本地视频素材库，下载的素材也会保存在这里。
+  task_folder: "tasks"
   local_assets_dir: "storage/local"
-  # 本地模型配置
   local_models: 
     base_path: "models"
     whisper: "whisper/faster-whisper-medium"
@@ -109,21 +88,11 @@ paths:
       use_onnx: true
       path: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2-onnx"
 
-# Asset Search Strategy
-# ---------------------
+# 素材搜索策略
 asset_search:
-  # 每次在线搜索时，向Pexels或Pixabay请求的素材数量。
-  # 增加此值可以提高找到合适素材的几率，但会消耗更多API配额。
-  online_search_count: 15
-
-  # 在关键词用尽后，调用Ollama生成新关键词的最大重试次数。
-  max_keyword_retries: 2
-
-  # (新增) 两次在线API请求之间的最小间隔时间（秒）。
-  # 用于防止因请求过于频繁而被服务商限制。
-  request_delay_seconds: 1
-
-  # 新增两组补齐关键词
+  online_search_count: 5 # 每次在线搜索时，向Pexels或Pixabay请求的素材数量。
+  max_keyword_retries: 3 # 在关键词用尽后，调用LLM生成新关键词的最大重试次数。
+  request_delay_seconds: 3 # 两次在线API请求之间的最小间隔时间（秒）。
   fallback_en:
     - healthy lifestyle
     - wellness routine
@@ -133,48 +102,42 @@ asset_search:
     - 养生日常
     - 运动镜头
 
-# Scene Detection Parameters
-# --------------------------
-# 用于阶段一的语义场景分割。
+# 场景检测参数
 scene_detection:
   splitter:
-    # LLM一次处理的字幕行数。
-    chunk_size: 50
-    # 区块之间的重叠行数，以确保上下文连续性。
-    overlap: 10
+    chunk_size: 50 # LLM一次处理的字幕行数。
+    overlap: 10 # 区块之间的重叠行数，以确保上下文连续性。
 
-# Prompt Engineering
-# ------------------
-# 用于指导大语言模型完成特定任务的提示词模板。
+# 提示词工程
 prompts:
-  # 用于场景分割 (Stage 1)
   scene_splitter: "assets/prompts/scene_splitter.yaml"
-
   keyword_generator: "assets/prompts/keyword_generator.yaml"
-
-
-  # 用于在素材搜索失败后生成新的关键词 (Stage 2 retry)
   asset_keyword_generator: "assets/prompts/asset_keyword_generator.yaml"
 
-# General Settings
-# ----------------
-# 设置为 true 以在视频合成时启用详细的 ffmpeg 日志，便于排查问题。
-debug: false
+# 常规设置
+debug: false # 设置为 true 以在视频合成时启用详细的 ffmpeg 日志，便于排查问题。
 
-# Logging configuration.
+# 日志配置
 logging:
-  # Log level can be DEBUG, INFO, WARNING, ERROR, CRITICAL
   level: "INFO"
   format: "%(asctime)s - %(levelname)s - %(message)s"
 
-# TTS (Text-to-Speech) Services
-# -----------------------------
+# TTS服务配置
 tts_providers:
-  default: "cosyvoice"  # Default TTS provider
-
+  default: "cosyvoice"
+  
   cosyvoice:
     enabled: true
-    base_endpoint: "http://your_cosyvoice_endpoint"
-    api_key: "" # Optional, if your service requires an API key
-    default_speaker: "some_default_speaker_name"
+    base_endpoint: "YOUR_COSYVOICE_ENDPOINT" # e.g., "http://192.168.0.253:8002"
+    api_key: "YOUR_COSYVOICE_API_KEY" # Optional, if your service requires an API key
+    default_speaker: "台湾-中年医生-男"
     remark: "CosyVoice TTS service"
+
+  siliconflow:
+    enabled: false
+    api_key: "YOUR_SILICONFLOW_TTS_API_KEY"
+    host: "https://api.siliconflow.cn"
+    models:
+      - "FunAudioLLM/CosyVoice2-0.5B"
+    default_speaker: "alex" # 可选: alex, anna, bella, benjamin, charles, claire, david, diana
+    remark: "SiliconFlow TTS service"

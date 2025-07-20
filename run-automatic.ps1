@@ -57,7 +57,7 @@ $uvicornArgs = @(
     "src.api.main:app",
     "--host", "0.0.0.0",
     "--port", $Port.ToString()
-    # "--reload"
+    ,"--reload"
 )
 
 # Launch the FastAPI app via uvicorn

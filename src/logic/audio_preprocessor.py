@@ -276,14 +276,17 @@ class AudioPreprocessor:
             log.info(f"Found existing sentences cache: {sentences_output_path}")
             with open(sentences_output_path, 'r', encoding='utf-8') as f:
                 return [line.strip() for line in f]
+        
         with open(original_text_path, 'r', encoding='utf-8') as f:
             content = f.read()
-        sentences = re.split(r'([，。？：,.:?])', content)
-        sentences = ["".join(i) for i in zip(sentences[0::2], sentences[1::2])]
-        sentences = [s.strip() for s in sentences if s.strip()]
+        
+        # Delegate the complex text processing to the dedicated TextProcessor method.
+        sentences = TextProcessor.split_and_clean_sentences(content)
+        
         with open(sentences_output_path, 'w', encoding='utf-8') as f:
             for sentence in sentences:
                 f.write(sentence + '\n')
+                
         log.success(f"Split into {len(sentences)} sentences and cached to {sentences_output_path}")
         return sentences
 

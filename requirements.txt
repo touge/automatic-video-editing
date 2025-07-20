@@ -27,6 +27,9 @@ tqdm
 # For parsing YAML configuration files
 PyYAML
 
+# For process management
+psutil
+
 # Other
 requests
 httpx

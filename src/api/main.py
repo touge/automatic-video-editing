@@ -12,9 +12,11 @@ import bootstrap
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 # config and log are now initialized by bootstrap.py
-from src.config_loader import config # Keep config import for now, as it's used directly below
-from src.logger import log # Keep log import for now, as it's used directly below
-from src.api.routers import tasks, analysis, composition, audio_tasks, subtitle_tasks # Import new routers
+from src.config_loader import config
+from src.logger import log
+from src.api.routers import tasks, analysis, audio_tasks, subtitle_tasks, media_tasks
+# 导入用于设置信号处理器的函数，这是实现优雅关闭的关键
+from src.core.process_manager import setup_signal_handlers
 
 # --- FastAPI App Initialization ---
 app = FastAPI(
@@ -36,10 +38,10 @@ app.mount("/static/tasks", StaticFiles(directory="tasks"), name="static_tasks")
 
 # Include routers from other modules
 app.include_router(tasks.router)
+app.include_router(audio_tasks.router)
+app.include_router(subtitle_tasks.router)
 app.include_router(analysis.router)
-app.include_router(composition.router)
-app.include_router(audio_tasks.router) # Include the new audio_tasks router
-app.include_router(subtitle_tasks.router) # Include the new subtitle_tasks router
+app.include_router(media_tasks.router) # Add the new media_tasks router
 
 @app.get("/", tags=["Root"])
 async def read_root():
@@ -47,6 +49,12 @@ async def read_root():
 
 # --- Server Startup Logic ---
 if __name__ == "__main__":
+    # --- 关键步骤: 设置信号处理器 ---
+    # 在应用主入口调用此函数，以确保无论何时收到退出信号（如 Ctrl+C），
+    # 应用都能先尝试干净地终止所有子进程，然后再退出。
+    # 这是防止 "孤儿" ffmpeg 进程残留的关键。
+    setup_signal_handlers()
+
     # Load default server settings from config
     api_config = config.get('api_server', {})
     default_host = api_config.get('host', '0.0.0.0')

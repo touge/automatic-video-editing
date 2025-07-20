@@ -134,9 +134,25 @@ class SceneGenerator:
     def _generate_keywords_for_scenes(self, scenes: list) -> list:
         log.info("--- Step 3: Generating keywords for each scene ---")
         keyword_gen = KeywordGenerator(config)
-        scenes_iterable = tqdm(scenes, desc="Generating Keywords", unit="scene")
         
+        # 初次生成
+        log.info("Starting initial keyword generation pass...")
+        scenes_iterable = tqdm(scenes, desc="Generating Keywords", unit="scene")
         keyword_gen.generate_for_scenes(scenes_iterable)
+        
+        # --- 针对失败场景的重试逻辑 ---
+        scenes_to_retry = [s for s in scenes if not s.get('scenes')]
+        
+        if scenes_to_retry:
+            log.warning(f"Found {len(scenes_to_retry)} scenes that failed keyword generation. Starting retry pass...")
+            retry_iterable = tqdm(scenes_to_retry, desc="Retrying Keywords", unit="scene")
+            keyword_gen.generate_for_scenes(retry_iterable)
+            
+            # 重试后最终检查
+            still_failed_scenes = [s for s in scenes_to_retry if not s.get('scenes')]
+            if still_failed_scenes:
+                failed_scene_numbers = [s.get('scene_number', 'N/A') for s in still_failed_scenes]
+                log.error(f"{len(still_failed_scenes)} scenes still failed after retry: {failed_scene_numbers}. Please check LLM provider or prompts.")
         
         log.success("Keyword generation complete.")
         return scenes

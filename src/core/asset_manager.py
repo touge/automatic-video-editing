@@ -16,6 +16,7 @@ from src.color_utils import (
     print_success,
     print_info,
 )
+from src.utils import get_video_duration
 # --- 新增导入 ---
 from src.providers.search.pexels import PexelsProvider
 from src.providers.search.pixabay import PixabayProvider
@@ -110,44 +111,38 @@ class AssetManager:
         log.debug("LLM关键词生成已禁用，跳过生成新关键词。")
         return []
     
-    def find_assets_for_scene(self, scene: dict, num_assets: int) -> List[Dict[str, Any]]:
+    def find_assets_for_scene(self, scene: dict, online_search_count: int) -> List[Dict[str, Any]]:
         """
-        Simplied logic:
-        1. Get keywords from the scene.
-        2. Use these keywords to find ONE asset.
-        3. If found, return it. If not, return empty.
-        No more secondary keyword generation or complex logic.
+        为单个场景查找一个最终可用的素材。
+        它会遍历所有提供者和关键词，对返回的每个候选素材进行下载和验证，
+        一旦找到第一个完全可用的素材，就立即返回。
         """
         scene_duration = scene.get("time", 0)
         keywords = scene.get("keys", [])
 
         if not keywords:
-            log.warning("Scene has no keywords. Cannot find assets.")
+            log.warning("场景中没有关键词，无法查找素材。")
             return []
             
-        log.info(f"Attempting to find asset with keywords: {keywords}")
+        log.info(f"\n正在为场景查找素材，关键词: {keywords}")
         
-        # This method now finds one asset and returns it in a list, or an empty list.
-        found_video_infos = self._find_assets_with_keywords(keywords, num_assets, scene_duration)
+        # 此方法现在查找、下载、验证并返回一个可用的素材，或返回空列表
+        found_video_info = self._find_and_validate_asset(keywords, online_search_count, scene_duration)
     
-        if found_video_infos:
-            log.success(f"Successfully found an asset for the scene.")
+        if found_video_info:
+            log.success(f"成功为场景找到并验证了素材。")
+            return [found_video_info] # 以列表形式返回单个结果
         else:
-            log.error(f"Failed to find any usable asset for the scene with keywords: {keywords}")
-            
-        return found_video_infos
-    
-    def _find_assets_with_keywords(self, keywords: List[str], num_to_find: int, min_duration: float = 0) -> List[Dict[str, Any]]:
-        """
-        为一批关键词查找一个可用的素材。
-        此方法现在实现了完整的查找、验证、下载逻辑，只返回一个结果。
-        """
-        if not keywords or not self.video_providers:
+            log.error(f"未能为场景找到任何可用的素材，关键词: {keywords}")
             return []
 
-        # The outer logic expects a list, even though we only find one.
-        # We will find one valid asset and return it inside a list.
-        
+    def _find_and_validate_asset(self, keywords: List[str], search_count_per_call: int, min_duration: float = 0) -> Dict[str, Any] | None:
+        """
+        遍历所有Provider和关键词，查找、下载并验证第一个可用的素材。
+        """
+        if not keywords or not self.video_providers:
+            return None
+
         for provider in self.video_providers:
             if not provider.enabled:
                 continue
@@ -155,9 +150,8 @@ class AssetManager:
             provider_name = provider.__class__.__name__.replace("Provider", "")
             log.info(f"  -> 尝试 Provider: {provider_name}")
 
-            # In this provider, try all keywords until one yields a usable video.
             for keyword in keywords:
-                # --- API Request Delay ---
+                # --- API 请求延迟 ---
                 if self.last_online_search_time:
                     elapsed = time.time() - self.last_online_search_time
                     if elapsed < self.request_delay:
@@ -167,21 +161,21 @@ class AssetManager:
                 self.last_online_search_time = time.time()
 
                 log.info(f"    -> 尝试关键词: '{keyword}'")
-                # Get a list of candidate videos from the provider.
-                # The `num_to_find` here is passed to the provider's search method as `count`.
-                candidate_videos = provider.search([keyword], count=num_to_find, min_duration=min_duration)
+                
+                # 从Provider获取一批候选视频
+                candidate_videos = provider.search([keyword], count=search_count_per_call, min_duration=min_duration)
 
                 if not candidate_videos:
                     log.warning(f"    -> 在 {provider_name} 中未找到关于 '{keyword}' 的视频。")
-                    continue # Try next keyword
+                    continue # 尝试下一个关键词
 
-                # Iterate through the candidates to find the first usable one.
+                # 遍历这批候选视频，找到第一个完全可用的
                 for video_info in candidate_videos:
                     unique_id = video_info.get('id')
                     video_name = video_info.get('video_name')
                     source = video_info.get('source')
 
-                    # --- Deduplication Logic ---
+                    # --- 去重逻辑 ---
                     if unique_id and unique_id in self.used_source_ids:
                         log.warning(f"    -> 跳过已使用的素材 (按 unique_id): {unique_id}")
                         continue
@@ -192,34 +186,32 @@ class AssetManager:
                         log.warning(f"    -> 跳过一个没有唯一ID的素材: {video_info}")
                         continue
 
-                    # --- Found a new, usable asset ---
-                    log.success(f"    -> 在 {provider_name} 中找到新素材: {unique_id} (关键词: '{keyword}')")
+                    # --- 下载并验证 ---
+                    log.success(f"    -> 在 {provider_name} 中找到新候选素材: {unique_id} (关键词: '{keyword}')。正在尝试下载和验证...")
+                    path = self._download_asset(video_info)
+                    if not path:
+                        log.warning(f"    -> 下载失败，尝试下一个候选素材。")
+                        continue # 下载失败，尝试下一个
+
+                    # --- 标记为已使用并返回 ---
+                    self.used_source_ids.add(unique_id)
+                    if source == 'ai_search':
+                        if video_name: self.used_ai_video_names.add(video_name)
+                        self.used_local_paths.add(path)
                     
-                    # Download it.
-                    path = self._download_and_register(video_info, keywords)
-                    if path:
-                        # Mark as used.
-                        self.used_source_ids.add(unique_id)
-                        if source == 'ai_search':
-                            if video_name: self.used_ai_video_names.add(video_name)
-                            self.used_local_paths.add(path)
-                        
-                        # Add local_path to the info and return.
-                        video_info['local_path'] = path
-                        return [video_info] # Return as a list with one item.
+                    video_info['local_path'] = path
+                    return video_info # 成功，立即返回
             
             log.warning(f"    -> 在 {provider_name} 中，所有关键词均未找到可用素材。")
 
-        # If we get here, no asset was found in any provider for any keyword.
         log.error(f"  -> 遍历了所有 Provider 和关键词，但未能为该镜头找到任何可用素材。")
-        return []
+        return None
 
     
-    def _download_and_register(self, video_info: Dict[str, Any], keywords: List[str]) -> str | None:
+    def _download_asset(self, video_info: Dict[str, Any]) -> str | None:
         """
-        下载单个视频并返回其本地路径。
-        - 对于 'ai_search'，素材被视为临时片段，下载到任务特定的 .videos 目录中。
-        - 对于其他提供者，素材被下载到全局的本地资产缓存中。
+        下载单个视频，验证其有效性，然后返回其本地路径。
+        如果下载或验证失败，则返回 None。
         """
         source = video_info['source']
         source_id = video_info['id']
@@ -253,6 +245,13 @@ class AssetManager:
                         bar.update(size)
                 
                 log.success(f"      -> AI 搜索素材已下载到临时目录: {local_file_path}")
+                
+                # 下载后立即验证
+                if get_video_duration(local_file_path) is None:
+                    log.error(f"      -> 下载的文件无效 (无法获取时长): {local_file_path}。正在删除...")
+                    os.remove(local_file_path)
+                    return None
+                
                 return local_file_path
             except KeyboardInterrupt:
                 log.error("用户中断了下载操作。")
@@ -303,6 +302,13 @@ class AssetManager:
             # 下载成功后，注册到数据库
             # self.db_manager.add_asset(source, str(source_id), keywords, local_file_path)
             # log.success(f"      -> 视频已下载并索引: {local_file_path}")
+
+            # 下载后立即验证
+            if get_video_duration(local_file_path) is None:
+                log.error(f"      -> 下载的文件无效 (无法获取时长): {local_file_path}。正在删除...")
+                os.remove(local_file_path)
+                return None
+
             return local_file_path
         except KeyboardInterrupt:
             log.error("用户中断了下载操作。")

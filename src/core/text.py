@@ -46,3 +46,30 @@ class TextProcessor:
         m, s = divmod(seconds, 60)
         h, m = divmod(m, 60)
         return f"{int(h):02d}:{int(m):02d}:{int(s):02d},{int((s - int(s)) * 1000):03d}"
+
+    @staticmethod
+    def split_and_clean_sentences(text: str) -> list[str]:
+        """
+        Splits a block of text into clean sentences for subtitle generation.
+        - Splits by a comprehensive list of punctuation, including semicolons.
+        - Removes trailing punctuation from each resulting sentence.
+        - Filters out any empty or whitespace-only strings.
+        """
+        if not text:
+            return []
+
+        # 1. Split the text by a comprehensive set of delimiters.
+        # The regex uses a lookbehind `(?<=...)` to keep the delimiter at the end of the sentence.
+        sentences = re.split(r'(?<=[，。？：；,.:;?!])', text)
+        
+        cleaned_sentences = []
+        for sentence in sentences:
+            # 2. Strip leading/trailing whitespace from the raw split.
+            s = sentence.strip()
+            if s:
+                # 3. Remove any trailing punctuation from the final sentence.
+                # This is done AFTER the split to handle cases like "Hello... world."
+                s = re.sub(r'[，。？：；,.:;?!]+$', '', s)
+                cleaned_sentences.append(s)
+        
+        return cleaned_sentences

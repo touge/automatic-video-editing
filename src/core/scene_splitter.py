@@ -16,7 +16,7 @@ class SceneSplitter:
         if not self.llm_manager.provider:
             raise ValueError("No LLM providers are available. Please check your config.yaml.")
         
-        log.info("SceneSplitter initialized.")
+        log.info("Scene splitter initialized.")
 
         prompts_config = self.config.get('prompts', {})
         self.prompt_template = prompts_config.get('scene_splitter')
@@ -30,12 +30,14 @@ class SceneSplitter:
     def _get_split_points_from_chunk(self, chunk_segments: list) -> list[int]:
         """
         Sends a text chunk to the LLM and identifies scene change points.
+        Now uses the 'generate' endpoint for efficiency and semantic correctness.
         """
         numbered_text = "\n".join([f"{i}: {seg['text']}" for i, seg in enumerate(chunk_segments)])
         prompt = self.prompt_template.format(numbered_text=numbered_text)
         try:
-            content = self.llm_manager.chat_with_failover(
-                messages=[{'role': 'user', 'content': prompt}],
+            # Use generate_with_failover instead of chat_with_failover
+            content = self.llm_manager.generate_with_failover(
+                prompt=prompt,
                 temperature=0.0
             )
             raw_points = [int(n.strip()) for n in content.split(',') if n.strip().isdigit()]

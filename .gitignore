@@ -27,8 +27,7 @@ models/*
 input/*
 output/*
 feiqi/*
-tests/*
-api-/*
+tester/*
 tasks/*
 models*
 models/*

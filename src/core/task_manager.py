@@ -26,6 +26,7 @@ class TaskManager:
         "alignment_cache": ".whisper/aligned.pkl",
         # Scene Generator
         "final_scenes": "final_scenes.json",
+        "final_scenes_with_assets": "final_scenes_assets.json", # 新增：用于存储带有素材路径的场景数据
         "segments_cache": ".scenes/segments.json",
         "scenes_raw_cache": ".scenes/scenes_raw.json",
         # Scene Splitter
