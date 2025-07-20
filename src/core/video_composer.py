@@ -64,14 +64,23 @@ class VideoComposer:
         print_warning("No specific hardware encoder detected, using efficient libx264 software encoder.")
         return 'libx264', ['-preset', 'veryfast'], False
 
-    def _run_cmd(self, cmd: list):
-        """Executes an ffmpeg command, hiding output unless in debug mode."""
+    def _run_cmd(self, cmd: list, log_progress: bool = False, total_duration: float = 0, desc: str = ""):
+        """Executes an ffmpeg command, optionally showing progress and hiding output unless in debug mode."""
         if self.debug:
+            log.debug(f"Executing FFmpeg command: {' '.join(cmd)}")
             subprocess.run(cmd, check=True)
+            return
+
+        if log_progress:
+            self._run_ffmpeg_with_progress(cmd, total_duration, desc)
         else:
             subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    def _trim_and_normalize_segment(self, src_path: Path, duration: float, dst_path: str, codec_info: tuple):
+    def _trim_and_normalize_segment(self, src_path: Path, actual_duration: float, temp_dst_path: str, codec_info: tuple):
+        """
+        Trims and normalizes a video segment to its actual duration,
+        resizing and re-encoding it.
+        """
         codec, extra_args, hwaccel_qsv = codec_info
         vf_string = f"scale={self.width}:-2:force_original_aspect_ratio=decrease,pad={self.width}:{self.height}:(ow-iw)/2:(oh-ih)/2:color=black,fps={self.fps}"
 
@@ -85,11 +94,12 @@ class VideoComposer:
                     log.debug(f"Failed command: {' '.join(command)}")
                 return False
 
+        # --- First attempt with original path ---
         cmd1 = ['ffmpeg', '-y']
         if hwaccel_qsv:
             cmd1 += ['-hwaccel', 'qsv']
-        cmd1 += ['-ss', '0', '-t', str(duration), '-i', str(src_path), '-vf', vf_string, '-c:v', codec, *extra_args, '-c:a', 'aac', dst_path]
-        if try_encode(cmd1, f"recommended encoder ({codec})"):
+        cmd1 += ['-ss', '0', '-t', str(actual_duration), '-i', str(src_path), '-vf', vf_string, '-c:v', codec, *extra_args, '-c:a', 'aac', temp_dst_path]
+        if try_encode(cmd1, f"recommended encoder ({codec}) on original path"):
             return
 
         if codec != 'libx264':
@@ -100,14 +110,144 @@ class VideoComposer:
                 cmd2.insert(idx, '-c:v'); cmd2.insert(idx + 1, 'libx264'); cmd2.insert(idx + 2, '-preset'); cmd2.insert(idx + 3, 'veryfast')
             except ValueError:
                  cmd2 += ['-c:v', 'libx264', '-preset', 'veryfast']
-            if try_encode(cmd2, "software encoder (libx264)"):
+            if try_encode(cmd2, "software encoder (libx264) on original path"):
                 return
 
-        cmd3 = ['ffmpeg', '-y', '-ss', '0', '-t', str(duration), '-i', str(src_path), '-c', 'copy', dst_path]
-        if try_encode(cmd3, "stream copy (trim only)"):
-            return
-        
-        print_error(f"Error: Could not process segment {src_path}. All encoding schemes failed. Skipping.")
+        # --- If encoding fails, copy to local and retry ---
+        log.warning(f"Initial processing failed for {src_path.name}. Copying to local temp file and retrying.")
+        local_temp_src_path = self.task_manager.get_file_path('temp_video_file', name=src_path.name)
+        try:
+            shutil.copy(src_path, local_temp_src_path)
+        except Exception as e:
+            error_message = f"Failed to copy {src_path.name} to local temp directory: {e}"
+            log.error(error_message)
+            raise RuntimeError(error_message)
+
+        try:
+            # Retry with local file
+            cmd1_local = ['ffmpeg', '-y']
+            if hwaccel_qsv:
+                cmd1_local += ['-hwaccel', 'qsv']
+            cmd1_local += ['-ss', '0', '-t', str(actual_duration), '-i', str(local_temp_src_path), '-vf', vf_string, '-c:v', codec, *extra_args, '-c:a', 'aac', temp_dst_path]
+            if try_encode(cmd1_local, f"recommended encoder ({codec}) on local copy"):
+                return
+
+            if codec != 'libx264':
+                cmd2_local = cmd1_local.copy()
+                try:
+                    idx = cmd2_local.index('-c:v')
+                    del cmd2_local[idx : idx + 2 + len(extra_args)]
+                    cmd2_local.insert(idx, '-c:v'); cmd2_local.insert(idx + 1, 'libx264'); cmd2_local.insert(idx + 2, '-preset'); cmd2_local.insert(idx + 3, 'veryfast')
+                except ValueError:
+                    cmd2_local += ['-c:v', 'libx264', '-preset', 'veryfast']
+                if try_encode(cmd2_local, "software encoder (libx264) on local copy"):
+                    return True
+
+            cmd3_local = ['ffmpeg', '-y', '-ss', '0', '-t', str(actual_duration), '-i', str(local_temp_src_path), '-c', 'copy', temp_dst_path]
+            if try_encode(cmd3_local, "stream copy (trim only) on local copy"):
+                return
+            
+            error_message = f"Error: Could not process segment {src_path}. All encoding schemes failed, even with a local copy. Skipping."
+            print_error(error_message)
+            raise RuntimeError(error_message)
+        finally:
+            if os.path.exists(local_temp_src_path):
+                os.unlink(local_temp_src_path)
+
+    def _extend_video_segment(self, input_path: str, output_path: str, actual_duration: float, extend_method: str, extend_duration: float):
+        """
+        Extends a video segment using looping or freeze frame.
+        """
+        if extend_method == 'loop':
+            num_loops = math.ceil((actual_duration + extend_duration) / actual_duration)
+            log.debug(f"Looping video {os.path.basename(input_path)} {num_loops} times to extend by {extend_duration:.2f}s")
+            
+            # Create a temporary concat list for looping
+            loop_list_path = self.task_manager.get_file_path('concat_list', name=f"loop_{Path(input_path).stem}")
+            lines = [f"file '{Path(input_path).resolve().as_posix()}'\n" for _ in range(int(num_loops))]
+            with open(loop_list_path, 'w', encoding='utf-8') as f:
+                f.writelines(lines)
+            
+            # Concatenate the looped video
+            loop_cmd = [
+                'ffmpeg', '-y',
+                '-protocol_whitelist', 'file,concat',
+                '-f', 'concat', '-safe', '0',
+                '-i', loop_list_path,
+                '-t', str(actual_duration + extend_duration), # Trim to exact required duration
+                '-c', 'copy',
+                output_path
+            ]
+            try:
+                self._run_cmd(loop_cmd)
+            finally:
+                if os.path.exists(loop_list_path):
+                    os.unlink(loop_list_path)
+
+        elif extend_method == 'freeze_frame':
+            log.debug(f"Extending video {os.path.basename(input_path)} with freeze frame for {extend_duration:.2f}s")
+            temp_freeze_frame_video = self.task_manager.get_file_path('video_segment', index='freeze_temp')
+            
+            # 1. Extract last frame
+            extract_frame_cmd = [
+                'ffmpeg', '-y', '-i', input_path,
+                '-vf', f"select='eq(n,{int(actual_duration * self.fps) - 1})'", # Select last frame
+                '-vframes', '1',
+                '-q:v', '2', # Quality
+                temp_freeze_frame_video.replace('.mp4', '.jpg') # Save as JPG
+            ]
+            try:
+                self._run_cmd(extract_frame_cmd)
+            except Exception as e:
+                log.error(f"Failed to extract last frame for freeze frame: {e}")
+                raise
+
+            # 2. Create video from image for extend_duration
+            create_freeze_video_cmd = [
+                'ffmpeg', '-y',
+                '-loop', '1',
+                '-i', temp_freeze_frame_video.replace('.mp4', '.jpg'),
+                '-t', str(extend_duration),
+                '-vf', f"scale={self.width}:{self.height}", # Ensure resolution matches
+                '-c:v', 'libx264', '-preset', 'veryfast',
+                '-pix_fmt', 'yuv420p', # For wider compatibility
+                temp_freeze_frame_video
+            ]
+            try:
+                self._run_cmd(create_freeze_video_cmd)
+            except Exception as e:
+                log.error(f"Failed to create freeze frame video: {e}")
+                raise
+
+            # 3. Concatenate original video with freeze frame video
+            concat_list_path = self.task_manager.get_file_path('concat_list', name=f"freeze_concat_{Path(input_path).stem}")
+            lines = [
+                f"file '{Path(input_path).resolve().as_posix()}'\n",
+                f"file '{Path(temp_freeze_frame_video).resolve().as_posix()}'\n"
+            ]
+            with open(concat_list_path, 'w', encoding='utf-8') as f:
+                f.writelines(lines)
+
+            concat_cmd = [
+                'ffmpeg', '-y',
+                '-protocol_whitelist', 'file,concat',
+                '-f', 'concat', '-safe', '0',
+                '-i', concat_list_path,
+                '-c', 'copy',
+                output_path
+            ]
+            try:
+                self._run_cmd(concat_cmd)
+            finally:
+                if os.path.exists(concat_list_path):
+                    os.unlink(concat_list_path)
+                if os.path.exists(temp_freeze_frame_video):
+                    os.unlink(temp_freeze_frame_video)
+                if os.path.exists(temp_freeze_frame_video.replace('.mp4', '.jpg')):
+                    os.unlink(temp_freeze_frame_video.replace('.mp4', '.jpg'))
+        else:
+            # No extension needed, just copy
+            shutil.copy(input_path, output_path)
 
     def _make_concat_list(self, segment_paths: list[str], list_path: str):
         lines = [f"file '{Path(p).resolve().as_posix()}'\n" for p in segment_paths]
@@ -255,7 +395,11 @@ class VideoComposer:
             for i, (src_path, duration) in enumerate(tqdm(zip(all_asset_paths, all_duration_parts), total=len(all_asset_paths), desc="Preparing Segments")):
                 dst_path = self.task_manager.get_file_path('video_segment', index=i)
                 if not os.path.exists(dst_path):
-                    self._trim_and_normalize_segment(src_path, duration, dst_path, codec_info)
+                    try:
+                        self._trim_and_normalize_segment(src_path, duration, dst_path, codec_info)
+                    except RuntimeError as e:
+                        log.error(f"Failed to process segment {src_path.name}, stopping composition.")
+                        raise e # Re-raise the exception to be caught by the logic layer
                 if os.path.exists(dst_path):
                     processed_segments.append(dst_path)
 

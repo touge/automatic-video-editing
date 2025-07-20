@@ -1,7 +1,9 @@
 import requests
 import os
+import sys
 from typing import List, Dict, Any
 from pathlib import Path
+from urllib.parse import urlparse
 from .base import BaseVideoProvider
 from src.logger import log
 
@@ -17,7 +19,7 @@ class AiSearchProvider(BaseVideoProvider):
             raise ValueError("AI Search API key or URL not found in config.yaml under 'ai_search'")
         self.enabled = True
 
-    def search(self, keywords: List[str], count: int = 1) -> List[Dict[str, Any]]:
+    def search(self, keywords: List[str], count: int = 1, min_duration: float = 0) -> List[Dict[str, Any]]:
         """
         使用AI API搜索本地视频。
         """
@@ -41,7 +43,8 @@ class AiSearchProvider(BaseVideoProvider):
             "positive": query,
             "top_n": count,
             "positive_threshold": 25,
-            "negative_threshold": 25
+            "negative_threshold": 25,
+            "min_duration": min_duration
         }
         
         try:
@@ -49,48 +52,66 @@ class AiSearchProvider(BaseVideoProvider):
             response = requests.post(self.api_url, headers=headers, json=payload, timeout=30)
             response.raise_for_status()
             data = response.json()
-            # print(f"data:{data}")
-            # API返回一个包含 'results' 键的字典，我们将该键下的列表传递给验证函数
             return self._standardize_results(data.get('results', []))
         except requests.RequestException as e:
-            # 捕获所有 requests 相关的异常，包括连接、超时和HTTP错误
-            self.enabled = False # 禁用此提供者
-            
+            self.enabled = False
             error_message = f"AI Search provider '{self.api_url}' failed"
             if hasattr(e, 'response') and e.response is not None:
                 error_message += f" with status code {e.response.status_code}."
             else:
                 error_message += f" with a connection error: {e.__class__.__name__}."
-            
             log.error(f"{error_message} It will be disabled for the rest of this session.")
             return []
+        except KeyboardInterrupt:
+            log.error("用户中断了操作。")
+            sys.exit(0)
 
     def _standardize_results(self, videos: List[Dict]) -> List[Dict[str, Any]]:
         """
-        验证AI API的返回结果。
-        API应返回一个字典列表，每个字典代表一个视频，且已包含标准化键。
-        此函数主要验证每个结果中的文件路径是否存在。
+        验证AI API的返回结果，并将其标准化以进行重复数据删除。
+        - 使用 'video_id' 和 'video_name' 创建一个唯一的稳定ID。
+        - 将此稳定ID覆盖 'id' 字段。
         """
-        validated_videos = []
+        standardized_videos = []
+        seen_ids = set()
+
         for video_info in videos:
-            # API返回的应该是字典
             if not isinstance(video_info, dict):
                 log.warning(f"AI search returned an invalid item (expected a dict): {video_info}")
                 continue
-            
-            # 从字典中获取 'download_url'，它应该是本地路径
-            local_path_str = video_info.get('download_url')
-            if not local_path_str:
-                log.warning(f"AI search result item is missing 'download_url' key: {video_info}")
+
+            video_id = video_info.get('video_id')
+            video_name = video_info.get('video_name')
+
+            if not video_id or not video_name:
+                log.warning(f"AI search result item is missing 'video_id' or 'video_name': {video_info}")
                 continue
 
-            local_path = Path(local_path_str)
-            
-            if not local_path.exists():
-                log.warning(f"AI search returned a non-existent file path: {local_path}")
-                continue
+            # 使用 video_id 和 video_name 创建唯一ID
+            stable_id = f"ai-{video_id}-{video_name}"
+            video_info['id'] = stable_id
 
-            # 路径有效，将此视频信息添加到结果列表
-            validated_videos.append(video_info)
+            # 检查此稳定ID是否已被处理
+            if video_info['id'] in seen_ids:
+                log.debug(f"Skipping duplicate video with stable ID: {video_info['id']}")
+                continue
             
-        return validated_videos
+            # 检查并提取视频时长
+            duration_str = video_info.get('duration')
+            if duration_str and isinstance(duration_str, str) and duration_str.endswith('s'):
+                try:
+                    video_info['duration'] = float(duration_str[:-1])
+                except (ValueError, TypeError):
+                    log.warning(f"AI search result for '{video_info['id']}' has invalid duration: {duration_str}. Skipping duration.")
+                    video_info.pop('duration', None)
+            elif isinstance(duration_str, (int, float)):
+                video_info['duration'] = float(duration_str)
+            else:
+                if duration_str is not None:
+                    log.warning(f"AI search result for '{video_info['id']}' has unexpected duration format: {duration_str}. Skipping.")
+                video_info.pop('duration', None)
+
+            standardized_videos.append(video_info)
+            seen_ids.add(video_info['id'])
+
+        return standardized_videos

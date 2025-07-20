@@ -47,6 +47,58 @@ class SceneGenerator:
         
         self.task_manager = TaskManager(task_id)
 
+    def regenerate_scenes_for_scene(self, scene: dict) -> dict:
+        """
+        Regenerates sub-scenes (the actual shots) and keywords for a single main scene that is missing them.
+        """
+        log.info(f"Attempting to regenerate sub-scenes for main scene number: {scene.get('scene_number')}")
+
+        # We use the unified 'start' and 'end' keys.
+        text = scene.get("text")
+        start_time = scene.get("start")
+        end_time = scene.get("end")
+
+        # Guard against malformed scene objects that lack essential keys for regeneration.
+        if not all([text, start_time is not None, end_time is not None]):
+            log.error(f"Cannot regenerate scene: it's missing one or more required keys ('text', 'start', 'end'). Scene data: {scene}")
+            return scene
+
+        # 1. Create a dummy segment list from the scene's text.
+        # This is a bit of a workaround. We treat the main scene as a single segment
+        # to feed into the splitter, which expects a list of segments.
+        segments = [{
+            "text": text,
+            "start": start_time,
+            "end": end_time
+        }]
+
+        # 2. Use SceneSplitter to generate sub-scenes.
+        # This will return a list of main scenes. Since we passed in what amounts to one main scene,
+        # we expect a list containing one main scene, which in turn contains the sub-scenes.
+        splitter = SceneSplitter(config, self.task_manager.task_id)
+        regenerated_main_scenes = splitter.split(segments)
+
+        if not regenerated_main_scenes:
+            log.error(f"SceneSplitter failed to generate any content for scene: {scene.get('scene_number')}")
+            return scene
+
+        # 3. Generate keywords for the newly created sub-scenes.
+        # The keyword generator will add the 'scenes' key (the sub-scenes) to our regenerated main scene.
+        keyword_gen = KeywordGenerator(config)
+        keyword_gen.generate_for_scenes(regenerated_main_scenes)
+
+        # The sub-scenes are now in regenerated_main_scenes[0]['scenes'].
+        # We update the original scene object with these new sub-scenes.
+        if regenerated_main_scenes and regenerated_main_scenes[0].get("scenes"):
+            updated_scene_data = regenerated_main_scenes[0]
+            scene["scenes"] = updated_scene_data.get("scenes", [])
+            log.success(f"Successfully regenerated sub-scenes for main scene: {scene.get('scene_number')}")
+        else:
+            log.error(f"Keyword generation failed to produce sub-scenes for scene: {scene.get('scene_number')}")
+            scene["scenes"] = [] # Ensure it's an empty list if failed
+
+        return scene
+
     def run(self):
         log.info(f"--- Starting Scene Generation for Task ID: {self.task_manager.task_id} ---")
 

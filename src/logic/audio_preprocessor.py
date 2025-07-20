@@ -16,6 +16,7 @@ from src.core.model_loader import ModelLoader
 from src.core.text import TextProcessor
 from src.core.search import Searcher
 from src.core.task_manager import TaskManager
+from src.utils import add_line_breaks_after_punctuation # 导入新函数
 
 
 class AudioProcessor:
@@ -318,16 +319,23 @@ class AudioPreprocessor:
     def _create_srt_from_alignment(self, aligned_data: List[Dict], srt_output_path: str):
         log.info("--- Step 3.4: Generating SRT file ---")
         aligned_data.sort(key=lambda x: x['start'])
-        punctuations_to_process = "，。？：,.:?"
+        # 定义需要添加换行符的标点符号
+        punctuations_for_linebreak = ['！', '？', '。', '…']
+        
         with open(srt_output_path, 'w', encoding='utf-8') as f:
             for i, entry in enumerate(aligned_data):
                 start_time = TextProcessor.format_time(entry['start'])
                 end_time = TextProcessor.format_time(entry['end'])
                 text = entry['text']
-                for punc in punctuations_to_process:
-                    text = text.replace(punc, ' ')
-                clean_text = ' '.join(text.split())
+                
+                # 在指定标点符号后添加换行符
+                processed_text = add_line_breaks_after_punctuation(text, punctuations_for_linebreak)
+                
+                # 移除其他不需要的标点符号或多余空格（如果需要）
+                # 这里假设 add_line_breaks_after_punctuation 已经处理了主要格式
+                # 如果还需要进一步清理，可以在这里添加
+                
                 f.write(f"{i + 1}\n")
                 f.write(f"{start_time} --> {end_time}\n")
-                f.write(f"{clean_text}\n\n")
+                f.write(f"{processed_text.strip()}\n\n") # 使用处理后的文本，并去除首尾空白
         log.success(f"Final SRT file generated at: {srt_output_path}")

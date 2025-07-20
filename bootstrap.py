@@ -8,8 +8,12 @@ ROOT_DIR = os.path.abspath(os.path.dirname(__file__))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-# 🔧 你还可以在这里做更多初始化（如 dotenv、日志等）
+# 显式导入并初始化配置和日志系统
+# 确保这些在其他模块（如LlmManager）被导入之前执行
+from src.config_loader import config
+from src.logger import log
 
+log.info("Bootstrap: Configuration and logging system initialized.")
 
 '''
 

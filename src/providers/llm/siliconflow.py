@@ -12,18 +12,18 @@ class SiliconflowProvider(BaseLlmProvider):
         super().__init__(name, config)
         self.api_key = self.config.get('api_key')
         self.host = self.config.get('host')
-        self.models = self.config.get('models', [])
+        self.model = self.config.get('model') # Expect a single model string
 
         if not self.api_key:
             raise ValueError("SiliconFlow provider config must contain an 'api_key'.")
         if not self.host:
             raise ValueError("SiliconFlow provider config must contain a 'host'.")
-        if not self.models:
-            raise ValueError("SiliconFlow provider config must contain a 'models' list.")
+        if not self.model: # Check for single model field
+            raise ValueError("SiliconFlow provider config must contain a 'model' field.")
 
         try:
             self.client = OpenAI(api_key=self.api_key, base_url=self.host)
-            self.default_model = self.models[0]
+            self.default_model = self.model # The single model is the default
         except Exception as e:
             raise ConnectionError(f"Failed to configure SiliconFlow client: {e}")
 
@@ -39,8 +39,8 @@ class SiliconflowProvider(BaseLlmProvider):
         使用SiliconFlow进行聊天。
         """
         model = kwargs.pop('model', self.default_model)
-        if model not in self.models:
-            raise ValueError(f"Model '{model}' is not available for provider '{self.name}'. Available models: {self.models}")
+        if model != self.model: # Check if the requested model matches the configured single model
+            raise ValueError(f"Model '{model}' is not the configured model for provider '{self.name}'. Configured model: {self.model}")
             
         try:
             completion = self.client.chat.completions.create(

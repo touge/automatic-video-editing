@@ -42,8 +42,10 @@ def _parse_llm_json_response(raw_text: str) -> dict | None:
 class KeywordGenerator:
     def __init__(self, config: dict):
         self.llm_manager = LlmManager(config)
-        if not self.llm_manager.ordered_providers:
-            raise ValueError("No LLM providers are available for KeywordGenerator. Please check your config.yaml.")
+        # LlmManager现在只加载一个提供者，并在初始化失败时抛出错误，所以这里不再需要额外的检查。
+        # 确保llm_manager.provider存在，否则LlmManager初始化时会抛出错误
+        if not self.llm_manager.get_provider():
+            raise ValueError("LLM provider is not available for KeywordGenerator. Please check your config.yaml and LLM service status.")
         
         log.info("KeywordGenerator initialized.")
         
@@ -58,6 +60,8 @@ class KeywordGenerator:
                     scene_text=scene["text"], 
                     duration=scene["duration"]
                 )
+                # log.warning(f"prompt: {prompt}")
+                # import sys; sys.exit()
                 response_text = self.llm_manager.generate_with_failover(prompt)
                 parsed_data = _parse_llm_json_response(response_text)
                 

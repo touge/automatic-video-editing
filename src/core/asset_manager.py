@@ -4,6 +4,8 @@ import random
 import datetime
 import time
 import re
+import uuid
+import sys
 from src.providers.llm import LlmManager
 from typing import List, Set, Dict, Any
 from .database_manager import DatabaseManager
@@ -74,6 +76,7 @@ class AssetManager:
 
         # --- 全局已用素材跟踪 ---
         self.used_source_ids: Set[str] = set()
+        self.used_ai_video_names: Set[str] = set() # 新增：只跟踪来自 ai_search 的 video_name
         self.used_local_paths: Set[str] = set()
 
         # --- 初始化所有可用的视频提供者 ---
@@ -107,64 +110,44 @@ class AssetManager:
         log.debug("LLM关键词生成已禁用，跳过生成新关键词。")
         return []
     
-    def find_assets_for_scene(self, scene: dict, num_assets: int) -> list[str]:
+    def find_assets_for_scene(self, scene: dict, num_assets: int) -> List[Dict[str, Any]]:
         """
-        1) 对 scene['keywords_en'] 先去重补齐到 3 条，得到 initial_keywords
-        2) 用 initial_keywords 搜素材；不再生成新关键词
-        3) 最终返回找到的素材路径
+        Simplied logic:
+        1. Get keywords from the scene.
+        2. Use these keywords to find ONE asset.
+        3. If found, return it. If not, return empty.
+        No more secondary keyword generation or complex logic.
         """
-    
-        # —— 第一步：处理初始关键词 ——
-        # 根据用户反馈，直接使用 'keys' 字段作为关键词
-        raw_initial = scene.get("keys", [])
-        initial_keywords = dedupe_and_fill(
-            raw_initial,
-            target=3
-        )
-    
-        current_keywords = initial_keywords
-    
-        # —— 第二步：尝试单轮搜索（不再重试生成新关键词）——
-        log.info(f"[轮次 1] 用关键词 {current_keywords} 搜素材")
-        found = self._find_assets_with_keywords(current_keywords, num_assets)
-    
-        if len(found) >= num_assets:
-            log.success(f"找到了 {len(found)} 个素材，返回！")
-            return found
-        else:
-            log.warning("未能找到足够的素材，不再尝试生成新关键词。")
-    
-        # 返回找到的素材（可能不足 num_assets，甚至为空）
-        return found
-    
-    def _find_assets_with_keywords(self, keywords: List[str], num_to_find: int) -> List[str]:
-        """
-        为一批关键词查找指定数量的素材。
-        此方法现在只负责调用 _find_one_asset 指定次数。
-        """
+        scene_duration = scene.get("time", 0)
+        keywords = scene.get("keys", [])
+
         if not keywords:
+            log.warning("Scene has no keywords. Cannot find assets.")
             return []
-    
-        found_paths: List[str] = []
-        for i in range(num_to_find):
-            log.info(f"--- 正在为第 {i+1}/{num_to_find} 个素材片段查找 ---")
-            asset_path = self._find_one_asset(keywords)
-            if asset_path:
-                found_paths.append(asset_path)
-            else:
-                log.error(f"未能为第 {i+1} 个片段找到任何素材，停止查找。")
-                break
+            
+        log.info(f"Attempting to find asset with keywords: {keywords}")
         
-        return found_paths
-
-    def _find_one_asset(self, keywords: List[str]) -> str | None:
+        # This method now finds one asset and returns it in a list, or an empty list.
+        found_video_infos = self._find_assets_with_keywords(keywords, num_assets, scene_duration)
+    
+        if found_video_infos:
+            log.success(f"Successfully found an asset for the scene.")
+        else:
+            log.error(f"Failed to find any usable asset for the scene with keywords: {keywords}")
+            
+        return found_video_infos
+    
+    def _find_assets_with_keywords(self, keywords: List[str], num_to_find: int, min_duration: float = 0) -> List[Dict[str, Any]]:
         """
-        为一组关键词查找一个素材。
-        外层循环遍历 Providers，内层循环遍历关键词。
+        为一批关键词查找一个可用的素材。
+        此方法现在实现了完整的查找、验证、下载逻辑，只返回一个结果。
         """
-        if not self.video_providers:
-            return None
+        if not keywords or not self.video_providers:
+            return []
 
+        # The outer logic expects a list, even though we only find one.
+        # We will find one valid asset and return it inside a list.
+        
         for provider in self.video_providers:
             if not provider.enabled:
                 continue
@@ -172,106 +155,122 @@ class AssetManager:
             provider_name = provider.__class__.__name__.replace("Provider", "")
             log.info(f"  -> 尝试 Provider: {provider_name}")
 
-            # 在当前 Provider 中尝试所有关键词
-            video_info = self._search_with_keywords_in_provider(keywords, provider)
-            
-            if video_info:
-                # 找到了，下载并返回
-                path = self._download_and_register(video_info, keywords)
-                if path:
-                    # 从 video_info 中获取正确的唯一ID并标记为已使用
-                    unique_id_to_add = video_info.get('unique_id_for_check')
-                    if unique_id_to_add:
-                        self.used_source_ids.add(unique_id_to_add)
-                    else:
-                        # 作为后备，如果 unique_id_for_check 不存在，记录一个警告
-                        log.warning(f"未能为视频找到 'unique_id_for_check'，将使用原始ID: {video_info.get('id')}")
-                        self.used_source_ids.add(video_info.get('id'))
+            # In this provider, try all keywords until one yields a usable video.
+            for keyword in keywords:
+                # --- API Request Delay ---
+                if self.last_online_search_time:
+                    elapsed = time.time() - self.last_online_search_time
+                    if elapsed < self.request_delay:
+                        sleep_duration = self.request_delay - elapsed
+                        log.info(f"    -> API请求间隔为 {self.request_delay}s，等待 {sleep_duration:.2f}s...")
+                        time.sleep(sleep_duration)
+                self.last_online_search_time = time.time()
 
-                    # 如果是本地文件，也添加到 used_local_paths
-                    if video_info.get('source') == 'ai_search':
-                         self.used_local_paths.add(path)
-                    return path
-        
-        log.warning(f"  -> 遍历了所有 Provider，但未能为关键词 {keywords} 找到任何素材。")
-        return None
+                log.info(f"    -> 尝试关键词: '{keyword}'")
+                # Get a list of candidate videos from the provider.
+                # The `num_to_find` here is passed to the provider's search method as `count`.
+                candidate_videos = provider.search([keyword], count=num_to_find, min_duration=min_duration)
 
-    def _search_with_keywords_in_provider(self, keywords: List[str], provider: BaseVideoProvider) -> Dict[str, Any] | None:
-        """
-        在单个 Provider 中，按顺序尝试所有关键词，直到找到一个可用的素材。
-        """
-        provider_name = provider.__class__.__name__.replace("Provider", "")
-        for keyword in keywords:
-            # --- API请求延迟逻辑 ---
-            if self.last_online_search_time:
-                elapsed = time.time() - self.last_online_search_time
-                if elapsed < self.request_delay:
-                    sleep_duration = self.request_delay - elapsed
-                    log.info(f"    -> API请求间隔为 {self.request_delay}s，等待 {sleep_duration:.2f}s...")
-                    time.sleep(sleep_duration)
-            self.last_online_search_time = time.time()
+                if not candidate_videos:
+                    log.warning(f"    -> 在 {provider_name} 中未找到关于 '{keyword}' 的视频。")
+                    continue # Try next keyword
 
-            log.info(f"    -> 尝试关键词: '{keyword}'")
-            search_count = self.asset_search_config.get('online_search_count', 10)
-            video_results = provider.search([keyword], count=search_count)
-            # log.info(f"    -> {provider_name} 返回了 {len(video_results)} 个结果。")
-            # log.info(f"    -> 关键词 '{keyword}' 的搜索结果: {video_results}")
-            # log.info(f"    -> 当前已被使用过的视频ids: {self.used_source_ids}")
-
-            if not video_results:
-                log.warning(f"    -> 在 {provider_name} 中未找到关于 '{keyword}' 的视频。")
-                continue # 尝试下一个关键词
-
-            # 遍历返回的视频结果
-            for video_info in video_results:
-                source = video_info.get('source')
-                
-                # 根据来源确定唯一标识符
-                if source == 'ai_search':
-                    unique_id = video_info.get('download_url')
-                else:
+                # Iterate through the candidates to find the first usable one.
+                for video_info in candidate_videos:
                     unique_id = video_info.get('id')
+                    video_name = video_info.get('video_name')
+                    source = video_info.get('source')
 
-                # 如果没有唯一ID，则跳过此素材
-                if not unique_id:
-                    log.warning(f"    -> 跳过一个没有唯一ID的素材: {video_info}")
-                    continue
+                    # --- Deduplication Logic ---
+                    if unique_id and unique_id in self.used_source_ids:
+                        log.warning(f"    -> 跳过已使用的素材 (按 unique_id): {unique_id}")
+                        continue
+                    if source != 'ai_search' and video_name and video_name in self.used_ai_video_names:
+                        log.warning(f"    -> 跳过已被 AI Search 使用的同名素材 (按 video_name): {video_name}")
+                        continue
+                    if not unique_id:
+                        log.warning(f"    -> 跳过一个没有唯一ID的素材: {video_info}")
+                        continue
 
-                # 检查此唯一ID是否已被使用
-                if unique_id not in self.used_source_ids:
+                    # --- Found a new, usable asset ---
                     log.success(f"    -> 在 {provider_name} 中找到新素材: {unique_id} (关键词: '{keyword}')")
-                    # 将唯一ID存入字典，以便上层方法使用
-                    video_info['unique_id_for_check'] = unique_id
-                    return video_info
+                    
+                    # Download it.
+                    path = self._download_and_register(video_info, keywords)
+                    if path:
+                        # Mark as used.
+                        self.used_source_ids.add(unique_id)
+                        if source == 'ai_search':
+                            if video_name: self.used_ai_video_names.add(video_name)
+                            self.used_local_paths.add(path)
+                        
+                        # Add local_path to the info and return.
+                        video_info['local_path'] = path
+                        return [video_info] # Return as a list with one item.
             
-            log.warning(f"    -> {provider_name} 为关键词 '{keyword}' 返回的所有素材均已被使用。")
+            log.warning(f"    -> 在 {provider_name} 中，所有关键词均未找到可用素材。")
 
-        # 在这个 provider 中，所有关键词都试过了，没找到
-        return None
+        # If we get here, no asset was found in any provider for any keyword.
+        log.error(f"  -> 遍历了所有 Provider 和关键词，但未能为该镜头找到任何可用素材。")
+        return []
+
     
     def _download_and_register(self, video_info: Dict[str, Any], keywords: List[str]) -> str | None:
-        """下载单个视频，注册到数据库，并返回本地路径。如果已存在则直接返回路径。"""
+        """
+        下载单个视频并返回其本地路径。
+        - 对于 'ai_search'，素材被视为临时片段，下载到任务特定的 .videos 目录中。
+        - 对于其他提供者，素材被下载到全局的本地资产缓存中。
+        """
         source = video_info['source']
         source_id = video_info['id']
         download_url = video_info['download_url']
-    
+
+        # --- AI Search 特殊处理：下载到任务临时目录 ---
+        if source == 'ai_search':
+            task_videos_dir = os.path.join('tasks', self.task_id, '.videos', 'ai_search_temp')
+            os.makedirs(task_videos_dir, exist_ok=True)
+            
+            filename = f"ai-search-{uuid.uuid4()}.mp4"
+            local_file_path = os.path.join(task_videos_dir, filename)
+
+            try:
+                log.info(f"      -> 正在下载 AI 搜索素材片段: {filename}")
+                video_res = requests.get(download_url, timeout=60, stream=True)
+                video_res.raise_for_status()
+        
+                total_size = int(video_res.headers.get('content-length', 0))
+                from tqdm import tqdm
+                with open(local_file_path, 'wb') as f, tqdm(
+                    desc=f"      -> {filename}",
+                    total=total_size,
+                    unit='iB',
+                    unit_scale=True,
+                    unit_divisor=1024,
+                    leave=False
+                ) as bar:
+                    for chunk in video_res.iter_content(chunk_size=8192):
+                        size = f.write(chunk)
+                        bar.update(size)
+                
+                log.success(f"      -> AI 搜索素材已下载到临时目录: {local_file_path}")
+                return local_file_path
+            except KeyboardInterrupt:
+                log.error("用户中断了下载操作。")
+                if os.path.exists(local_file_path):
+                    os.remove(local_file_path)
+                sys.exit(0)
+            except Exception as download_e:
+                log.error(f"      -> 下载 AI 搜索素材 {source_id} 失败: {download_e}", exc_info=True)
+                if os.path.exists(local_file_path):
+                    os.remove(local_file_path)
+                return None
+
+        # --- 其他 Provider 的标准处理流程 ---
         # 检查数据库中是否已存在此视频
         # existing_path = self.db_manager.find_asset_by_source_id(source, str(source_id))
         # if existing_path:
         #     log.info(f"      -> 在本地缓存中找到素材 (来自数据库): {os.path.basename(existing_path)}")
         #     return existing_path
-    
-        # 如果源是 'local' 或 'ai_search'，则文件已在本地，无需下载，只需注册
-        if source == 'ai_search':
-            local_file_path = download_url # 对于本地提供者，download_url就是文件路径
-            if os.path.exists(local_file_path):
-                # 将其添加到数据库以供未来快速查找
-                # self.db_manager.add_asset(source, str(source_id), keywords, local_file_path)
-                # log.success(f"      -> 找到并索引了本地素材: {os.path.basename(local_file_path)}")
-                return local_file_path
-            else:
-                log.warning(f"本地提供者报告了一个不存在的文件: {local_file_path}")
-                return None
     
         # 如果不在缓存中，则创建日期子目录后下载
         today_str = datetime.date.today().strftime("%Y-%m-%d")
@@ -305,6 +304,11 @@ class AssetManager:
             # self.db_manager.add_asset(source, str(source_id), keywords, local_file_path)
             # log.success(f"      -> 视频已下载并索引: {local_file_path}")
             return local_file_path
+        except KeyboardInterrupt:
+            log.error("用户中断了下载操作。")
+            if os.path.exists(local_file_path):
+                os.remove(local_file_path)
+            sys.exit(0)
         except Exception as download_e:
             log.error(f"      -> 下载视频 {source_id} 失败: {download_e}", exc_info=True)
             # 如果下载失败，清理可能已创建的不完整文件

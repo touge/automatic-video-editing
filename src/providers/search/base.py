@@ -11,13 +11,14 @@ class BaseVideoProvider(ABC):
         self.enabled = True
 
     @abstractmethod
-    def search(self, keywords: List[str], count: int = 1) -> List[Dict[str, Any]]:
+    def search(self, keywords: List[str], count: int = 1, min_duration: float = 0) -> List[Dict[str, Any]]:
         """
         根据关键词搜索视频。
 
         Args:
             keywords (List[str]): 用于搜索的关键词列表。
             count (int): 希望获取的视频数量。
+            min_duration (float): 视频的最短时长（秒）。
 
         Returns:
             List[Dict[str, Any]]: 一个包含视频信息的字典列表。

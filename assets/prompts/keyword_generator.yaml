@@ -22,8 +22,7 @@ prompt: |
   ```json
   {{
     "scenes": [
-      {{ "keys": ["keyword1", "keyword2", "keyword3"], "time": 3.5, "source_text": "..." }}
-      {{ "keys": ["keyword1", "keyword2", "keyword3"], "time": 4.0, "source_text": "..." }}
+      {{ "keys": ["walking difficulty", "elderly struggle", "home interior"], "time": 5.0,"source_text": "..."
       ...
     ]
   }}

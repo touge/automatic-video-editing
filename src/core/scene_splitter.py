@@ -13,7 +13,7 @@ class SceneSplitter:
         self.task_manager = TaskManager(task_id)
         
         self.llm_manager = LlmManager(config)
-        if not self.llm_manager.ordered_providers:
+        if not self.llm_manager.provider:
             raise ValueError("No LLM providers are available. Please check your config.yaml.")
         
         log.info("SceneSplitter initialized.")
@@ -123,8 +123,8 @@ class SceneSplitter:
                 end_time = scene_segments[-1]['end']
                 full_text = " ".join(s['text'] for s in scene_segments)
                 scenes.append({
-                    "scene_start": start_time,
-                    "scene_end": end_time,
+                    "start": start_time,
+                    "end": end_time,
                     "duration": round(end_time - start_time, 2),
                     "text": full_text,
                     "segments": scene_segments

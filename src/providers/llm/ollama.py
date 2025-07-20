@@ -9,16 +9,16 @@ class OllamaProvider(BaseLlmProvider):
     """
     def __init__(self, name: str, config: dict):
         super().__init__(name, config)
-        self.models = self.config.get('models', [])
-        if not self.models:
-            raise ValueError("Ollama provider config must contain a 'models' list.")
+        self.model = self.config.get('model') # Expect a single model string
+        if not self.model:
+            raise ValueError("Ollama provider config must contain a 'model' field.")
         
         try:
             self.client = ollama.Client(
                 host=self.config.get('host'),
                 timeout=self.config.get('timeout', 60)
             )
-            self.default_model = self.models[0]
+            self.default_model = self.model # The single model is the default
         except Exception as e:
             raise ConnectionError(f"Failed to initialize Ollama client: {e}")
 
@@ -27,8 +27,8 @@ class OllamaProvider(BaseLlmProvider):
         使用Ollama生成文本。
         """
         model = kwargs.pop('model', self.default_model)
-        if model not in self.models:
-            raise ValueError(f"Model '{model}' is not available for provider '{self.name}'. Available models: {self.models}")
+        if model != self.model: # Check if the requested model matches the configured single model
+            raise ValueError(f"Model '{model}' is not the configured model for provider '{self.name}'. Configured model: {self.model}")
 
         try:
             options = kwargs if kwargs else {}
@@ -50,8 +50,8 @@ class OllamaProvider(BaseLlmProvider):
         使用Ollama进行聊天。
         """
         model = kwargs.pop('model', self.default_model)
-        if model not in self.models:
-            raise ValueError(f"Model '{model}' is not available for provider '{self.name}'. Available models: {self.models}")
+        if model != self.model: # Check if the requested model matches the configured single model
+            raise ValueError(f"Model '{model}' is not the configured model for provider '{self.name}'. Configured model: {self.model}")
 
         try:
             options = kwargs if kwargs else {}

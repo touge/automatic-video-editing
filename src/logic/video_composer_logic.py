@@ -8,6 +8,8 @@ from src.core.asset_manager import AssetManager
 from src.core.video_composer import VideoComposer as CoreVideoComposer
 from src.logger import log
 from src.core.task_manager import TaskManager
+from src.utils import get_video_duration # Import get_video_duration
+from typing import List, Dict, Any # Import for type hinting
 
 class VideoComposition:
     def __init__(self, task_id: str, burn_subtitle: bool = False, scene_config: dict = None):
@@ -33,44 +35,45 @@ class VideoComposition:
         if not scenes:
             return
 
-        # 2. Find assets for each sub-scene (shot)
-        scenes_with_assets, all_assets_found, scenes_updated = self._find_assets_for_shots(scenes, self.scene_config)
+        # 2. Find assets for each sub-scene
+        scenes_with_assets, all_assets_found, scenes_updated = self._find_assets_for_sub_scenes(scenes, self.scene_config)
         if not all_assets_found:
-            log.error("Could not find assets for all shots. Aborting composition.")
+            log.error("Could not find assets for all sub-scenes. Aborting composition.")
             return
         
         # 3. 准备场景和资源路径数据
-        processed_scenes = []
+        processed_sub_scenes = []
         scene_asset_paths = []
         
-        for scene_idx, scene in enumerate(scenes_with_assets):
-            for shot in scene.get('scenes', []):
-                if 'asset_path' in shot and os.path.exists(shot['asset_path']):
-                    # 确保场景有所有必要的属性
-                    shot.update({
-                        'duration': shot.get('time', 5.0), # 使用 'time' 字段作为时长
-                        'start_time': shot.get('start_time', 0),
-                        'text': shot.get('text', ''),
+        for scene_idx, main_scene in enumerate(scenes_with_assets):
+            for sub_scene in main_scene.get('scenes', []):
+                # Only process sub-scenes that have a verified asset path
+                if sub_scene.get('asset_verified') and 'asset_path' in sub_scene and os.path.exists(sub_scene['asset_path']):
+                    # Ensure sub_scene has all necessary properties for CoreVideoComposer
+                    sub_scene.update({
+                        'duration': sub_scene.get('time', 5.0), # Use 'time' field as required duration
+                        'start_time': sub_scene.get('start', 0), # Use 'start' field
+                        'text': sub_scene.get('text', ''),
                         'scene_index': scene_idx
                     })
-                    processed_scenes.append(shot)
-                    scene_asset_paths.append([shot['asset_path']])
-                    log.debug(f"场景 {scene_idx}: 添加资源 {shot['asset_path']}")
+                    processed_sub_scenes.append(sub_scene)
+                    scene_asset_paths.append([sub_scene['asset_path']])
+                    log.debug(f"主场景 {scene_idx}: 添加资源 {sub_scene['asset_path']}")
                 else:
-                    log.warning(f"场景 {scene_idx}: 跳过无效资源的镜头")
+                    log.warning(f"主场景 {scene_idx}: 跳过无效或未找到资源的子场景")
         
-        if not processed_scenes:
-            log.error("没有找到有效的视频资源")
+        if not processed_sub_scenes:
+            log.error("没有找到有效的视频资源，无法进行合成。")
             return
         
-        log.info(f"准备合成 {len(processed_scenes)} 个视频片段")
+        log.info(f"准备合成 {len(processed_sub_scenes)} 个视频片段")
         
         try:
             # 4. 组装最终视频
             composer = CoreVideoComposer(config, self.task_manager.task_id)
             composer.assemble_video(
-                scenes=processed_scenes,
-                scene_asset_paths=scene_asset_paths,
+                scenes=processed_sub_scenes, # Pass processed sub-scenes with extension info
+                scene_asset_paths=scene_asset_paths, # This still just passes the raw paths
                 audio_path=audio_path,
                 burn_subtitle=self.burn_subtitle
             )
@@ -83,96 +86,84 @@ class VideoComposition:
 
         except Exception as e:
             log.error(f"视频组装步骤失败，已中止，不会保存场景文件。错误: {e}", exc_info=True)
+            self.task_manager.update_task_status(
+                self.task_manager.STATUS_FAILED,
+                step="video_composition",
+                details={"error": str(e)}
+            )
             # 发生错误时，不执行任何后续操作，直接退出
             return
 
-    def _clean_scene_data(self, scenes: list) -> list:
+    def _clean_scene_data(self, main_scenes: list) -> list:
         """在保存前，从场景数据中移除临时的运行时字段。"""
         import copy
-        scenes_copy = copy.deepcopy(scenes)
-        keys_to_remove = ['parent_scene_text', 'scene_index', 'shot_index', 'asset_verified', 'duration', 'start_time', 'text']
-        for scene in scenes_copy:
-            for shot in scene.get('scenes', []):
+        scenes_copy = copy.deepcopy(main_scenes)
+        # Define keys to remove from sub-scenes during cleanup
+        keys_to_remove = ['main_scene_index', 'sub_scene_index', 'asset_verified', 'duration', 'start_time', 'text', 'actual_duration', 'extend_method', 'extend_duration']
+        for main_scene in scenes_copy:
+            for sub_scene in main_scene.get('scenes', []):
                 for key in keys_to_remove:
-                    if key in shot:
-                        del shot[key]
+                    if key in sub_scene:
+                        del sub_scene[key]
         return scenes_copy
 
-    def _find_assets_for_shots(self, scenes: list, scene_config: dict) -> tuple[list, bool, bool]:
-        log.info("--- Step 1: Finding assets for each shot ---")
+    def _find_assets_for_sub_scenes(self, main_scenes: list, scene_config: dict) -> tuple[list, bool, bool]:
+        log.info("--- Step 1: Finding assets for each sub-scene ---")
         asset_manager = AssetManager(config, self.task_manager.task_id)
-        all_assets_found = True
         scenes_updated = False
 
-        # 添加调试信息
-        log.debug(f"处理 {len(scenes)} 个主场景")
-        total_shots = sum(len(scene.get('scenes', [])) for scene in scenes)
-        log.debug(f"总计 {total_shots} 个子场景需要处理")
+        all_sub_scenes = [
+            sub_scene
+            for main_scene in main_scenes
+            for sub_scene in main_scene.get('scenes', [])
+        ]
+        
+        log.debug(f"Total sub-scenes to process: {len(all_sub_scenes)}")
+        sub_scenes_iterable = tqdm(all_sub_scenes, desc="Finding Assets", unit="sub-scene")
+        
+        online_search_count = config.get('asset_search', {}).get('online_search_count', 10)
 
-        # 创建扁平化的镜头列表用于进度条显示
-        all_shots = []
-        for scene_idx, scene in enumerate(scenes):
-            for shot_idx, shot in enumerate(scene.get('scenes', [])):
-                # 添加更多上下文信息
-                shot.update({
-                    'parent_scene_text': scene['text'],
-                    'scene_index': scene_idx,
-                    'shot_index': shot_idx
-                })
-                all_shots.append(shot)
-
-        shots_iterable = tqdm(all_shots, desc="Finding Assets", unit="shot")
-        for shot in shots_iterable:
-            # 详细的调试信息
-            log.debug(f"\n处理镜头: Scene {shot['scene_index']}, Shot {shot['shot_index']}")
-            log.debug(f"场景文本: {shot['parent_scene_text']}")
+        for i, sub_scene in enumerate(sub_scenes_iterable):
+            sub_scenes_iterable.set_description(f"Finding Asset {i+1}/{len(all_sub_scenes)}")
             
-            keywords = shot.get('keys', shot.get('keywords_en', []))
+            # Cleaned up logging
+            log.debug(f"\nProcessing sub-scene {i+1}: \"{sub_scene.get('source_text', '')[:30]}...\"")
+            
+            keywords = sub_scene.get('keys', [])
             if not keywords:
-                log.warning(f"镜头缺少关键词: {shot}")
-                continue
+                log.error(f"Sub-scene {i+1} is missing keywords. Aborting.")
+                return main_scenes, False, scenes_updated
 
-            # 检查缓存的资源路径
-            cached_asset_path = shot.get('asset_path')
+            # --- Simplified Cache Check ---
+            cached_asset_path = sub_scene.get('asset_path')
             if cached_asset_path and os.path.exists(cached_asset_path):
-                log.debug(f"使用缓存资源: {cached_asset_path}")
+                log.debug(f"Found cached asset: {cached_asset_path}")
+                sub_scene['asset_verified'] = True
                 continue
 
-            # 为 asset_manager 构建一个临时的 scene-like 字典
-            # 优先使用子场景的 source_text，如果不存在，则回退到父场景的文本
-            context_text = shot.get('source_text', shot.get('parent_scene_text', ''))
-            temp_scene_for_asset_manager = {
-                "keys": keywords, # 使用 'keys' 字段
-                "text": context_text
-            }
+            # --- Find ONE new asset ---
+            candidate_video_infos = asset_manager.find_assets_for_scene(sub_scene, online_search_count)
+            
+            if not candidate_video_infos:
+                log.error(f"Asset search failed for sub-scene {i+1} with keywords {keywords}. Aborting task.")
+                # Fail Fast: if no asset is found, the whole process fails.
+                return main_scenes, False, scenes_updated
 
-            # 查找资源
-            found_assets = asset_manager.find_assets_for_scene(temp_scene_for_asset_manager, 1)
-            
-            if not found_assets:
-                log.error(f"无法找到资源，参数: {temp_scene_for_asset_manager}")
-                all_assets_found = False
-                break
-            
-            # 验证资源
-            asset_path = found_assets[0]
-            if not os.path.exists(asset_path):
-                log.error(f"资源文件不存在: {asset_path}")
-                all_assets_found = False
-                break
-            
-            # 保存资源路径
-            shot['asset_path'] = asset_path
-            shot['asset_verified'] = True  # 添加验证标记
+            # --- Process the SINGLE found asset ---
+            video_info = candidate_video_infos[0]
+            asset_path = video_info.get('local_path')
+            actual_duration = video_info.get('duration')
+
+            if not asset_path or not os.path.exists(asset_path) or actual_duration is None:
+                 log.error(f"Found asset for sub-scene {i+1} is invalid. Aborting.")
+                 return main_scenes, False, scenes_updated
+
+            # --- Asset is valid, update sub_scene ---
+            sub_scene['asset_path'] = asset_path.replace(os.sep, '/')
+            sub_scene['actual_duration'] = actual_duration
+            sub_scene['asset_verified'] = True
             scenes_updated = True
-            
-            log.debug(f"找到有效资源: {asset_path}")
+            log.success(f"Successfully found and verified asset for sub-scene {i+1}: {asset_path}")
 
-        # 最终验证
-        if all_assets_found:
-            valid_shots = sum(1 for shot in all_shots if shot.get('asset_verified'))
-            log.info(f"成功处理 {valid_shots}/{len(all_shots)} 个镜头")
-        else:
-            log.error("部分镜头未能找到合适的资源")
-
-        return scenes, all_assets_found, scenes_updated
+        log.info("All sub-scenes have successfully found an asset.")
+        return main_scenes, True, scenes_updated

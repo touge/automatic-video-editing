@@ -9,13 +9,14 @@ class CosyVoiceTtsProvider(BaseTtsProvider):
     """
     def __init__(self, name: str, config: dict):
         super().__init__(name, config)
-        self.base_endpoint = self.config.get('base_endpoint', '').rstrip('/')
+        self.endpoint = self.config.get('endpoint', '').rstrip('/')
         self.api_key = self.config.get('api_key')
         self.speaker = self.config.get('speaker')
+        self.speed = self.config.get('speed')
         self.api_path = "/speak_as"  # Hardcoded API path for this provider
         
-        if not self.base_endpoint:
-            raise ValueError("CosyVoice TTS provider config must contain a 'base_endpoint'.")
+        if not self.endpoint:
+            raise ValueError("CosyVoice TTS provider config must contain a 'endpoint'.")
         if not self.speaker:
             raise ValueError("CosyVoice TTS provider config must contain a 'speaker'.")
 
@@ -30,7 +31,7 @@ class CosyVoiceTtsProvider(BaseTtsProvider):
         elif not task_id:
             raise ValueError("A valid task_id is required for synthesis.")
 
-        full_api_url = self.base_endpoint + self.api_path
+        full_api_url = self.endpoint + self.api_path
         
         headers = {
             'accept': 'application/json',
@@ -41,7 +42,8 @@ class CosyVoiceTtsProvider(BaseTtsProvider):
 
         speaker = kwargs.get('speaker', self.speaker)
         return_type = kwargs.get('return_type', 'url')
-        speed = kwargs.get('speed', 0.95)
+        # speed = kwargs.get('speed', 0.95)
+        speed = kwargs.get('speed', self.speed)
 
         payload = {
             "speaker": speaker,
@@ -50,36 +52,35 @@ class CosyVoiceTtsProvider(BaseTtsProvider):
             "speed": speed
         }
 
-        try:
+        def _do_request():
+            """封装实际的请求逻辑，供重试机制调用。"""
             if not is_test:
                 log.info(f"Sending TTS request to {full_api_url} with speaker '{speaker}'")
             
             response = requests.post(full_api_url, headers=headers, json=payload)
             response.raise_for_status()
+            return response.json() # 返回 JSON 响应
+
+        try:
+            data = self._execute_with_retry(_do_request)
             
             # If it's a test call, we just need to know it succeeded.
             if is_test:
                 return {'status': 'ok'}
 
-            data = response.json()
             if data.get('status') == 'ok':
                 # Assemble the full URL if the response is a relative path
                 audio_url = data.get('url', '')
                 if not audio_url.startswith(('http://', 'https://')):
-                    audio_url = self.base_endpoint + audio_url
+                    audio_url = self.endpoint + audio_url
                 data['url'] = audio_url
                 log.info(f"TTS synthesis successful. Full audio URL: {audio_url}")
                 return data
             else:
-                if not is_test:
-                    log.error(f"TTS synthesis failed with status: {data.get('status')}. Reason: {data.get('message')}")
+                log.error(f"TTS synthesis failed with status: {data.get('status')}. Reason: {data.get('message')}")
                 raise Exception(f"TTS API returned an error: {data.get('message')}")
 
-        except requests.exceptions.RequestException as e:
-            if not is_test:
-                log.error(f"Failed to connect to TTS service at {full_api_url}: {e}")
-            raise
         except Exception as e:
-            if not is_test:
-                log.error(f"An unexpected error occurred during TTS synthesis: {e}")
+            # _execute_with_retry 已经处理了重试和日志，这里只捕获最终的失败
+            log.error(f"Final attempt for CosyVoice TTS synthesis failed: {e}")
             raise

@@ -21,51 +21,50 @@ pixabay:
   api_key: "51157807-3d36b78ae5b3cdfd0b119a2eb"
 
 llm_providers:
-  # 主要控制点：明确指定默认提供者
-  default: "siliconflow"  
+  # 主要控制点：明确指定要使用的LLM提供者
+  use: "ollama"  # 约定使用的LLM，代码中不再进行探测，唯一可用
+
+  # LLM调用失败后的重试次数
+  retries: 3
 
   ollama:
-    enabled: false
-    models:
-      - "qwen3:14b-q8_0"
+    # 约定LLM提供者中只有唯一的模型
+    model: "qwen3:14b"
     host: "http://127.0.0.1:11434"
     remark: "本地模型服务，适用于关键词提取和场景分割"
 
   siliconflow:
-    enabled: true
     api_key: "sk-pvracxuykfnajymvqjyxxfmqiwfmqchlsasekahpilkysiiq"  # 请替换为您的 API Key
-    models:
-      - "Qwen/Qwen3-14B"
-      - "Qwen/Qwen3-8B"
+    # 约定LLM提供者中只有唯一的模型
+    model: "Qwen/Qwen3-14B"
     host: "https://api.siliconflow.cn/v1"
     remark: "硅基流动, 用于生成视频脚本和关键词"
 
   openai:
-    enabled: false
     api_key: "gemini-litouge"
-    base_url: "https://zwlxneivrfjr.us-east-1.clawcloudrun.com/v1" # or your custom endpoint
-    models:
-      - "gemini-2.5-pro"
-      - "gemini-2.5-flash"
-      - "gemini-1.5-pro"
+    base_url: "https://zwlxneivrfjr.us-east-1.clawcloudcloudrun.com/v1" # or your custom endpoint
+    # 约定LLM提供者中只有唯一的模型
+    model: "gemini-2.5-pro"
     remark: "OpenAI, for high-quality text generation"
 
 # TTS (Text-to-Speech) Services
 # -----------------------------
 tts_providers:
-  use: "siliconflow"  # Specify the TTS provider to use
+  use: "cosyvoice"  # Specify the TTS provider to use
 
   cosyvoice:
-    base_endpoint: "http://192.168.0.253:8002"
+    endpoint: "http://192.168.0.253:8002"
     api_key: "123456" # Optional, if your service requires an API key
     speaker: "台湾-中年医生-男"
+    speed: 0.95
     remark: "CosyVoice TTS service"
 
   siliconflow:
-    api_key: "sk-bgeybolqvasczdghndvynraceeiisenkugqkegrcgburwnyt"
-    host: "https://api.siliconflow.cn"
+    api_key: "sk-htjixlgptkfgetortpskpbfwrbiyudkvbnouaufybeojjgms"
+    endpoint: "https://api.siliconflow.cn"
     model: "FunAudioLLM/CosyVoice2-0.5B"
-    speaker: "alex" # 可选: alex, anna, bella, benjamin, charles, claire, david, diana
+    speaker: "speech:tw-m-doctor:d1joilil401s7387r05g:mphxmkfljxdfxjxvscbm" #speech:tw-m-doctor:d1joilil401s7387r05g:mphxmkfljxdfxjxvscbm" # 可选:FunAudioLLM/CosyVoice2-0.5B：alex/anna/bella/benjamin/charles/claire, david, diana
+    speed: 0.95
     remark: "SiliconFlow TTS service"
 
 api_server:
@@ -76,6 +75,8 @@ api_server:
   tokens:
     - "123456"
     - "654321"
+  # API服务器的调试模式。设置为 true 时，会显示更详细的日志，包括底层网络错误。
+  debug_mode: false
 
 # Video Output Settings
 # ---------------------
@@ -118,10 +119,10 @@ paths:
   # 本地模型配置
   local_models: 
     base_path: "models"
-    whisper: "whisper/faster-whisper-medium"
+    whisper: "whisper/faster-whisper-large-v2"
     sentence_transformer: 
-      use_onnx: true
-      path: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2-onnx"
+      use_onnx: false
+      path: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
 # Asset Search Strategy
 # ---------------------

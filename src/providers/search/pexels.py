@@ -1,4 +1,5 @@
 import requests
+import sys
 from typing import List, Dict, Any
 from .base import BaseVideoProvider
 from src.logger import log
@@ -16,7 +17,7 @@ class PexelsProvider(BaseVideoProvider):
             raise ValueError("Pexels API key not found in config.yaml")
         self.api_url = f"{api_host.rstrip('/')}/videos/search"
 
-    def search(self, keywords: List[str], count: int = 1) -> List[Dict[str, Any]]:
+    def search(self, keywords: List[str], count: int = 1, min_duration: float = 0) -> List[Dict[str, Any]]:
         """
         在 Pexels 上搜索视频。
         在这里你可以轻松修改搜索参数，例如 'orientation', 'size' 等。
@@ -47,16 +48,31 @@ class PexelsProvider(BaseVideoProvider):
                 error_message += f" with a connection error: {e.__class__.__name__}."
             log.error(f"{error_message} It will be disabled for the rest of this session.")
             return []
+        except KeyboardInterrupt:
+            log.error("用户中断了操作。")
+            sys.exit(0)
 
     def _standardize_results(self, videos: List[Dict]) -> List[Dict[str, Any]]:
         """将 Pexels API 的返回结果标准化。"""
+        import os
+        from urllib.parse import urlparse
+
         standardized_videos = []
         for video in videos:
             video_file = max(video.get('video_files', []), key=lambda x: x.get('width', 0))
             if video_file:
+                download_url = video_file['link']
+                try:
+                    # 从URL中提取文件名作为video_name
+                    path = urlparse(download_url).path
+                    video_name = os.path.basename(path)
+                except Exception:
+                    video_name = f"pexels-{video['id']}.mp4" # 后备方案
+
                 standardized_videos.append({
                     'id': f"pexels-{video['id']}",
-                    'download_url': video_file['link'],
+                    'video_name': video_name,
+                    'download_url': download_url,
                     'source': 'pexels',
                     'description': f"Video by {video['user']['name']} on Pexels"
                 })

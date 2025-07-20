@@ -44,6 +44,28 @@ log.setLevel(logging.INFO)
 log.addHandler(handler)
 log.propagate = False # 防止消息被传递给根 logger，避免重复输出
 
+# 5. 根据 config.yaml 配置 API 服务器的调试模式
+try:
+    from src.config_loader import config
+    api_server_config = config.get('api_server', {})
+    api_debug_mode = api_server_config.get('debug_mode', False)
+
+    if not api_debug_mode:
+        # 如果不是调试模式，屏蔽 asyncio 的 INFO 级别日志，以减少底层网络噪音
+        logging.getLogger('asyncio').setLevel(logging.WARNING)
+        # Uvicorn 的 access 和 error 日志通常是重要的，不应轻易屏蔽
+        # logging.getLogger('uvicorn.access').setLevel(logging.WARNING)
+        # logging.getLogger('uvicorn.error').setLevel(logging.WARNING)
+        log.info("API服务器底层网络错误日志已屏蔽 (非调试模式)。")
+    else:
+        log.info("API服务器底层网络错误日志已启用 (调试模式)。")
+
+except ImportError:
+    log.warning("无法导入 config_loader，API服务器调试模式配置将跳过。")
+except Exception as e:
+    log.error(f"加载 API 服务器调试模式配置时出错: {e}")
+
+
 if __name__ == '__main__':
     log.info("This is an info message.")
     log.success("This is a success message!")

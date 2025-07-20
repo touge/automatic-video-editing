@@ -1,7 +1,9 @@
 import os
 from pathlib import Path
 import uuid
-from typing import Optional
+from typing import Optional, Dict, Any
+import json
+import datetime
 import bootstrap  # Ensure config is loaded before this module is used
 from src.config_loader import config
 
@@ -30,12 +32,19 @@ class TaskManager:
         "scene_split_chunk": ".scenes/scenes_split/chunk_{start}_{end}.json",
         # Video Composer
         "final_video": "final_video.mp4",
-        "video_segment": ".videos/seg_{index:04d}.mp4",
+        "video_segment": ".videos/segments/seg_{index:04d}.mp4",
         "concat_list": ".videos/concat_list.txt",
         "concatenated_video": ".videos/video_only_concatenated.mp4",
         "video_with_audio": ".videos/video_with_audio.mp4",
         "progress_log": ".videos/progress_{name}.log",
+        "temp_video_file": ".videos/temp/{name}",
     }
+
+    # Define task statuses
+    STATUS_PENDING = "PENDING"
+    STATUS_RUNNING = "RUNNING"
+    STATUS_SUCCESS = "SUCCESS"
+    STATUS_FAILED = "FAILED"
 
     def __init__(self, task_id: Optional[str] = None):
         paths_config = config.get('paths', {})
@@ -50,6 +59,7 @@ class TaskManager:
         
         self.task_path = self._ensure_task_path()
         self._setup_cache_dirs()
+        self._status_file_path = self.task_path / "status.json" # Define status file path
 
     @staticmethod
     def _generate_task_id() -> str:
@@ -96,3 +106,46 @@ class TaskManager:
         with open(script_path_str, 'wb') as f:
             f.write(script_content)
         return script_path_str
+
+    def _get_status_file_path(self) -> Path:
+        """Returns the path to the task's status file."""
+        return self.task_path / "status.json"
+
+    def update_task_status(self, status: str, step: Optional[str] = None, details: Optional[Dict[str, Any]] = None):
+        """
+        Updates the status of the task and saves it to a status file.
+        :param status: The new status of the task (e.g., PENDING, RUNNING, SUCCESS, FAILED).
+        :param step: Optional string indicating the current major step of the task (e.g., "audio_generation").
+        :param details: Optional dictionary with additional details about the task status.
+        """
+        status_data = {
+            "task_id": self.task_id,
+            "status": status,
+            "timestamp": self._get_current_timestamp()
+        }
+        if step:
+            status_data["step"] = step
+        if details:
+            status_data.update(details)
+
+        with open(self._get_status_file_path(), 'w', encoding='utf-8') as f:
+            json.dump(status_data, f, ensure_ascii=False, indent=4)
+
+    def get_task_status(self) -> Dict[str, Any]:
+        """
+        Retrieves the current status of the task from the status file.
+        Returns a dictionary with status information, or a default PENDING status if not found.
+        """
+        status_file = self._get_status_file_path()
+        if status_file.exists():
+            with open(status_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        return {
+            "task_id": self.task_id,
+            "status": self.STATUS_PENDING,
+            "message": "Task status file not found, assuming pending."
+        }
+
+    def _get_current_timestamp(self) -> str:
+        """Helper method to get current timestamp in ISO format."""
+        return datetime.datetime.now().isoformat()
