@@ -47,23 +47,6 @@ def adjust_subtitle_timings(aligned_data: List[Dict], gap_tolerance_ms: int = 0)
 
     return adjusted
 
-
-
-# def load_scenes_from_json(task_id: str) -> list:
-#     """从指定任务的JSON文件中加载（可能已修改的）场景。"""
-#     # This function might need refactoring if TaskManager is to be used everywhere.
-#     # For now, we keep its direct dependency to avoid passing TaskManager instance around.
-#     from src.core.task_manager import TaskManager
-#     task_manager = TaskManager(task_id)
-#     file_path = task_manager.get_path("final_scenes.json")
-#     log.info(f"从文件加载场景: {file_path}")
-#     try:
-#         with open(file_path, 'r', encoding='utf-8') as f:
-#             return json.load(f)
-#     except FileNotFoundError:
-#         log.error(f"错误: 场景文件 {file_path} 未找到。请先运行阶段一。")
-#         return []
-
 def check_llm_providers(config: dict):
     """
     检查所有在config.yaml中启用的LLM提供者是否可用。
@@ -139,3 +122,19 @@ def get_video_duration(video_path: str) -> Optional[float]:
     except Exception as e:
         log.error(f"获取视频时长时发生未知错误: {e}", exc_info=True)
         return None
+
+def get_relative_url(file_path: str, request: 'Request') -> str:
+    """
+    根据给定的文件绝对路径和请求对象，生成一个可公开访问的静态资源URL。
+    """
+    # 确保项目根目录已定义，通常在主应用或路由文件中设置
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    
+    # 计算文件相对于项目根目录的路径
+    relative_path = os.path.relpath(file_path, start=project_root)
+    
+    # 构造URL
+    base_url = str(request.base_url).rstrip('/')
+    static_path = f"static/{relative_path.replace(os.path.sep, '/')}"
+    
+    return f"{base_url}/{static_path}"

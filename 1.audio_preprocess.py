@@ -1,6 +1,6 @@
 import argparse
 import bootstrap
-from src.logic.audio_preprocessor import AudioPreprocessor
+from src.logic.audio_generator import AudioPreprocessor
 from src.logger import log
 from src.core.task_manager import TaskManager
 from src.tts import tts

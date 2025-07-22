@@ -1,6 +1,6 @@
 import argparse
 import bootstrap
-from src.logic.video_composer_logic import VideoComposition
+from src.logic.video_generator import VideoComposition
 from src.utils import check_llm_providers
 from src.config_loader import config
 from src.logger import log

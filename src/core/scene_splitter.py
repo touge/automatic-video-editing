@@ -129,7 +129,7 @@ class SceneSplitter:
                     "end": end_time,
                     "duration": round(end_time - start_time, 2),
                     "text": full_text,
-                    "segments": scene_segments
+                    # "segments": scene_segments
                 })
             last_split = split_index
 

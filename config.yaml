@@ -51,6 +51,8 @@ llm_providers:
 # -----------------------------
 tts_providers:
   use: "cosyvoice"  # Specify the TTS provider to use
+  # 单次TTS请求的最大文本长度（字符数）
+  tts_max_chunk_length: 2000
 
   cosyvoice:
     endpoint: "http://192.168.0.253:8002"
@@ -184,6 +186,12 @@ prompts:
 # ----------------
 # 设置为 true 以在视频合成时启用详细的 ffmpeg 日志，便于排查问题。
 debug: false
+
+# (新增) 文本处理设置
+text_processing:
+  # 场景（即视频中的一个镜头）的目标文本长度（字符数）。
+  # 预处理流程会尝试将文稿段落智能地合并或切分到这个长度左右。
+  scene_target_length: 300
 
 # Logging configuration.
 logging:

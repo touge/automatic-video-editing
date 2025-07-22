@@ -1,0 +1,390 @@
+{
+  "name": "Automatic Video Editing Workflow",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "0f7f8e51-5b3b-4e5a-8b1a-2c6d7e9f0a1b",
+      "name": "Start",
+      "type": "n8n-nodes-base.start",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://192.168.0.253:9001/tasks",
+        "authentication": "headerAuth",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "file",
+              "value": "={{ $json.script_path }}",
+              "sendAs": "file"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "1c2d3e4f-5b6a-7c8d-9e0f-1a2b3c4d5e6f",
+      "name": "1. Create Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        220,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "1",
+          "name": "API Key Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "script_path": "/path/to/your/script.txt",
+        "task_id_override": ""
+      },
+      "id": "a1b2c3d4-e5f6-a7b8-c9d0-e1f2a3b4c5d6",
+      "name": "Set Script Path",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        20,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=http://192.168.0.253:9001/tasks/{{ $json.task_id }}/audio",
+        "options": {}
+      },
+      "id": "b2c3d4e5-f6a7-b8c9-d0e1-f2a3b4c5d6e7",
+      "name": "2. Generate Audio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        620,
+        200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "1",
+          "name": "API Key Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "c3d4e5f6-a7b8-c9d0-e1f2-a3b4c5d6e7f8",
+      "name": "Loop Over Items",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 2,
+      "position": [
+        420,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=http://192.168.0.253:9001/tasks/{{ $json.task_id }}/status",
+        "options": {}
+      },
+      "id": "d4e5f6a7-b8c9-d0e1-f2a3-b4c5d6e7f8a9",
+      "name": "Get Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1020,
+        200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "1",
+          "name": "API Key Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.body.status }}",
+              "operation": "equal",
+              "value2": "SUCCESS"
+            }
+          ]
+        }
+      },
+      "id": "e5f6a7b8-c9d0-e1f2-a3b4-c5d6e7f8a9b0",
+      "name": "Is Task Done?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1220,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "time": 5,
+        "unit": "seconds"
+      },
+      "id": "f6a7b8c9-d0e1-f2a3-b4c5-d6e7f8a9b0c1",
+      "name": "Wait 5s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [
+        820,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=http://192.168.0.253:9001/tasks/{{ $json.task_id }}/subtitles",
+        "sendBody": true,
+        "jsonBody": "={}",
+        "options": {}
+      },
+      "id": "a7b8c9d0-e1f2-a3b4-c5d6-e7f8a9b0c1d2",
+      "name": "3. Generate Subtitles",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        620,
+        400
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "1",
+          "name": "API Key Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=http://192.168.0.253:9001/tasks/{{ $json.task_id }}/scenes",
+        "options": {}
+      },
+      "id": "b8c9d0e1-f2a3-b4c5-d6e7-f8a9b0c1d2e3",
+      "name": "4. Generate Scenes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        620,
+        600
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "1",
+          "name": "API Key Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=http://192.168.0.253:9001/tasks/{{ $json.task_id }}/assets",
+        "options": {}
+      },
+      "id": "c9d0e1f2-a3b4-c5d6-e7f8-a9b0c1d2e3f4",
+      "name": "5. Generate Assets",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        620,
+        800
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "1",
+          "name": "API Key Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=http://192.168.0.253:9001/tasks/{{ $json.task_id }}/assemble",
+        "sendBody": true,
+        "jsonBody": "={ \"burn_subtitle\": false }",
+        "options": {}
+      },
+      "id": "d0e1f2a3-b4c5-d6e7-f8a9-b0c1d2e3f4a5",
+      "name": "6. Assemble Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        620,
+        1000
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "1",
+          "name": "API Key Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "value": "={{ $json.body.details.video_url }}"
+      },
+      "id": "e1f2a3b4-c5d6-e7f8-a9b0-c1d2e3f4a5b6",
+      "name": "Final Video URL",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1420,
+        1000
+      ]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Set Script Path",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "1. Create Task": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Script Path": {
+      "main": [
+        [
+          {
+            "node": "1. Create Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. Generate Audio": {
+      "main": [
+        [
+          {
+            "node": "Wait 5s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "2. Generate Audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Status": {
+      "main": [
+        [
+          {
+            "node": "Is Task Done?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Task Done?": {
+      "main": [
+        [
+          {
+            "node": "Wait 5s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 5s": {
+      "main": [
+        [
+          {
+            "node": "Get Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Generate Subtitles": {
+      "main": [
+        [
+          {
+            "node": "Wait 5s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Generate Scenes": {
+      "main": [
+        [
+          {
+            "node": "Wait 5s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. Generate Assets": {
+      "main": [
+        [
+          {
+            "node": "Wait 5s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "6. Assemble Video": {
+      "main": [
+        [
+          {
+            "node": "Wait 5s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {},
+  "versionId": "1",
+  "triggerCount": 0,
+  "tags": []
+}

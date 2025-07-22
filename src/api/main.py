@@ -11,10 +11,12 @@ if project_root not in sys.path:
 import bootstrap
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+
 # config and log are now initialized by bootstrap.py
 from src.config_loader import config
 from src.logger import log
-from src.api.routers import tasks, analysis, audio_tasks, subtitle_tasks, media_tasks
+from src.api.routers import create_tasks, generate_audio, generate_scenes, generate_assets, generate_subtitles, generate_video
+
 # 导入用于设置信号处理器的函数，这是实现优雅关闭的关键
 from src.core.process_manager import setup_signal_handlers
 
@@ -30,18 +32,17 @@ from src.providers.llm import LlmManager
 llm_manager_instance = LlmManager(config)
 if not llm_manager_instance.get_provider():
     log.error("LLM Manager failed to initialize. Please check config.yaml and LLM service status.")
-    # Depending on criticality, you might want to sys.exit(1) here or raise an exception
-    # For now, we'll just log an error and let the app continue, but LLM-dependent features will fail.
 
 # Mount the 'tasks' directory under a specific static path to avoid conflicts with API routes
 app.mount("/static/tasks", StaticFiles(directory="tasks"), name="static_tasks")
 
 # Include routers from other modules
-app.include_router(tasks.router)
-app.include_router(audio_tasks.router)
-app.include_router(subtitle_tasks.router)
-app.include_router(analysis.router)
-app.include_router(media_tasks.router) # Add the new media_tasks router
+app.include_router(create_tasks.router)
+app.include_router(generate_audio.router)
+app.include_router(generate_subtitles.router)
+app.include_router(generate_scenes.router)
+app.include_router(generate_assets.router)
+app.include_router(generate_video.router) # Add the new media_tasks router
 
 @app.get("/", tags=["Root"])
 async def read_root():

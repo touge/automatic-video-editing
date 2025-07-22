@@ -57,7 +57,13 @@ class CosyVoiceTtsProvider(BaseTtsProvider):
             if not is_test:
                 log.info(f"Sending TTS request to {full_api_url} with speaker '{speaker}'")
             
-            response = requests.post(full_api_url, headers=headers, json=payload)
+            # 显式禁用代理，以解决本地网络中 Privoxy 等代理服务器的干扰问题
+            proxies = {
+                "http": None,
+                "https": None,
+            }
+            
+            response = requests.post(full_api_url, headers=headers, json=payload, proxies=proxies)
             response.raise_for_status()
             return response.json() # 返回 JSON 响应
 

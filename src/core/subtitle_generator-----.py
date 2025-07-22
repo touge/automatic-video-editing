@@ -6,7 +6,7 @@ from pathlib import Path
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-class SubtitleGenerator:
+class SubtitleGeneratorFFFFF:
     def __init__(self, language="eng"):
         """
         初始化 SubtitleGenerator。
