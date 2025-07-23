@@ -2,6 +2,7 @@ import sys
 import os
 import uvicorn
 import argparse
+import glob
 
 # Add project root to the Python path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -15,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 # config and log are now initialized by bootstrap.py
 from src.config_loader import config
 from src.logger import log
-from src.api.routers import create_tasks, generate_audio, generate_scenes, generate_assets, generate_subtitles, generate_video
+from src.api.routers import create_tasks, generate_audio, generate_scenes, generate_assets, generate_subtitles, generate_video, documentation
 
 # 导入用于设置信号处理器的函数，这是实现优雅关闭的关键
 from src.core.process_manager import setup_signal_handlers
@@ -23,7 +24,7 @@ from src.core.process_manager import setup_signal_handlers
 # --- FastAPI App Initialization ---
 app = FastAPI(
     title="自动化视频生成 API",
-    description="提供从脚本到视频的自动化生成流程的API接口。",
+    description='提供从脚本到视频的自动化生成流程的API接口。 <br><br> **[点击此处查看所有文档](/documentation)**',
     version="1.0.0"
 )
 
@@ -42,9 +43,10 @@ app.include_router(generate_audio.router)
 app.include_router(generate_subtitles.router)
 app.include_router(generate_scenes.router)
 app.include_router(generate_assets.router)
-app.include_router(generate_video.router) # Add the new media_tasks router
+app.include_router(generate_video.router)
+app.include_router(documentation.router) # Add the documentation router
 
-@app.get("/", tags=["Root"])
+@app.get("/", tags=["Root"], include_in_schema=False)
 async def read_root():
     return {"message": "Welcome to the Automatic Video Editing API!"}
 

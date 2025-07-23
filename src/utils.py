@@ -128,7 +128,7 @@ def get_relative_url(file_path: str, request: 'Request') -> str:
     根据给定的文件绝对路径和请求对象，生成一个可公开访问的静态资源URL。
     """
     # 确保项目根目录已定义，通常在主应用或路由文件中设置
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     
     # 计算文件相对于项目根目录的路径
     relative_path = os.path.relpath(file_path, start=project_root)

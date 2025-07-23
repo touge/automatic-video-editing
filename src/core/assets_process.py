@@ -18,17 +18,25 @@ class AssetsProcess:
         if not task_id:
             raise ValueError("A task_id must be provided.")
         self.task_manager = TaskManager(task_id)
+        # 获取最终分镜文件路径
+        self.scenes_path = self.task_manager.get_file_path('final_scenes')
+
+        # 最终分镜文件 + 素材资源
+        self.assets_scenes_path = self.task_manager.get_file_path('final_scenes_with_assets')
 
 
     def run(self):
         # 打印日志，开始素材准备流程
         log.info(f"--- Starting Asset Preparation for Task ID: {self.task_manager.task_id} ---")
 
-        # 获取最终分镜文件路径
-        scenes_path = self.task_manager.get_file_path('final_scenes')
+        if os.path.exists(self.assets_scenes_path):
+            log.success(f"The final scene material cache file for task {self.task_manager.task_id} already exists. Nothing to do.")
+            log.info(f"You can find the file at: {self.assets_scenes_path}")
+            return
+
         
         # 检查文件是否存在，否则抛出异常
-        if not os.path.exists(scenes_path):
+        if not os.path.exists(self.scenes_path):
             raise FileNotFoundError(f"Required file 'final_scenes.json' not found.")
 
         # 载入最终分镜数据（包含主分镜及子镜头）
@@ -48,15 +56,12 @@ class AssetsProcess:
         # 清洗运行时数据（如中间状态、调试信息等）
         cleaned_scenes = self._clean_runtime_data(scenes_with_assets)
         
-        # 准备写入路径：最终分镜文件 + 素材资源
-        assets_scenes_path = self.task_manager.get_file_path('final_scenes_with_assets')
-
         # 将清理后的分镜结构写入 JSON 文件
-        with open(assets_scenes_path, 'w', encoding='utf-8') as f:
+        with open(self.assets_scenes_path, 'w', encoding='utf-8') as f:
             json.dump(cleaned_scenes, f, ensure_ascii=False, indent=2)
 
         # 打印完成日志
-        log.success(f"Asset preparation complete. Data saved to {assets_scenes_path}")
+        log.success(f"Asset preparation complete. Data saved to {self.assets_scenes_path}")
 
     @classmethod
     def load_final_scenes(cls, task_id: str) -> list:

@@ -20,12 +20,16 @@ class VideoGenerator:
         self.task_manager = TaskManager(task_id)
         self.core_composer = CoreVideoComposer(config, task_id)
 
+        self.final_video_path = self.task_manager.get_file_path('final_video')
+
     def _run_frame_accurate_composition(self) -> str:
-        """
-        调用新的、基于帧的精确视频合成器，一步生成带音频的视频。
-        """
         log.info("--- Invoking Frame-Accurate Video Composer ---")
-        
+
+        if os.path.exists(self.final_video_path):
+            log.success(f"The final video file for task {self.task_manager.task_id} already exists. No action is required.")
+            log.info(f"You can find the file at: {self.final_video_path}")
+            return self.final_video_path
+
         assets_scenes_path = self.task_manager.get_file_path('final_scenes_with_assets')
         audio_path = self.task_manager.get_file_path('final_audio')
 
@@ -70,7 +74,6 @@ class VideoGenerator:
 
         # 1. 始终调用新引擎生成带音频的基准视频 (video_with_audio.mp4)
         video_with_audio_path = self._run_frame_accurate_composition()
-        final_video_path = self.task_manager.get_file_path('final_video')
 
         # 2. 根据 burn_subtitle 参数决定最终产物
         if burn_subtitle:
@@ -80,11 +83,11 @@ class VideoGenerator:
             subtitled_video_path = self.core_composer.burn_subtitles_to_video(video_with_audio_path)
 
             # 将带字幕的视频复制为最终产物 final_video.mp4
-            shutil.copy(subtitled_video_path, final_video_path)
-            log.success(f"Video with subtitles created and copied to {final_video_path}")
+            shutil.copy(subtitled_video_path, self.final_video_path)
+            log.success(f"Video with subtitles created and copied to {self.final_video_path}")
         else:
             # 如果不烧录字幕，直接将带音频的视频复制为最终产物 final_video.mp4
-            shutil.copy(video_with_audio_path, final_video_path)
-            log.success(f"Video with audio copied to {final_video_path}")
+            shutil.copy(video_with_audio_path, self.final_video_path)
+            log.success(f"Video with audio copied to {self.final_video_path}")
 
-        return final_video_path
+        return self.final_video_path

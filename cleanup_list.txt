@@ -1,0 +1,30 @@
+# Files and directories that can potentially be cleaned up.
+# Please review carefully before deleting.
+
+# macOS specific files
+.DS_Store
+assets/fonts/.DS_Store
+src/.DS_Store
+src/core/.DS_Store
+
+# Backup/copy files
+assets/prompts/keyword_generator copy.yaml
+src/keyword_generator copy.py
+
+# Old or temporary scripts
+1.audio_preprocess.py
+2.analysis_scenes.py
+3.composition.py
+check_moviepy.py
+bootstrap.py
+run-automatic.ps1
+
+# Configuration/workflow files that might not be core
+automatic-video-editing.n8n.json
+
+# Potentially empty or temporary directories (please check contents before deleting)
+docs/
+input/
+storage/
+tasks/
+tester/

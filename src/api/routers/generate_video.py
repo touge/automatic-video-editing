@@ -60,15 +60,6 @@ async def _assemble_video_task(task_id: str, burn_subtitle: bool, request: Reque
 
 @router.post("/{task_id}/assemble", summary="Assemble the final video (Async)")
 async def assemble_video(task_id: str, background_tasks: BackgroundTasks, request: Request, burn_subtitle: bool = Body(False, embed=True)):
-    """
-    **Step 2**: Performs the final video assembly.
-    
-    This endpoint calls the frame-accurate composition engine to generate the final video with audio.
-    You can choose whether to burn subtitles based on the `burn_subtitle` parameter.
-
-    - **Input**: `final_scenes_assets.json` and `final_audio.wav`
-    - **Output**: The final video file `final_video.mp4`.
-    """
     task_manager = TaskManager(task_id)
     step_name = "video_assembly"
 
