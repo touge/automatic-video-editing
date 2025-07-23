@@ -22,7 +22,7 @@ import os
 import shutil
 import requests
 from tqdm import tqdm
-from typing import List, Dict
+from typing import List, Dict, Optional
 from pydub import AudioSegment
 
 from src.logger import log
@@ -31,7 +31,7 @@ from src.config_loader import config
 from src.core.task_manager import TaskManager
 
 class AudioGenerator:
-    def __init__(self, task_id: str, doc_file: str):
+    def __init__(self, task_id: str, doc_file: str, speaker: Optional[str] = None):
         if not task_id or not doc_file:
             raise ValueError("task_id and doc_file must be provided.")
         if not os.path.exists(doc_file):
@@ -41,13 +41,43 @@ class AudioGenerator:
         self.doc_file = doc_file
         
         # 从配置加载参数
-        tts_config = config.get('tts_providers', {})
+        self.tts_config = config.get('tts_providers', {})
         text_processing_config = config.get('text_processing', {})
         
-        self.tts_max_chunk_length = tts_config.get('tts_max_chunk_length', 2000)
+        self.tts_max_chunk_length = self.tts_config.get('tts_max_chunk_length', 2000)
         self.scene_target_length = text_processing_config.get('scene_target_length', 300)
+        
+        self.speaker = self._resolve_speaker(speaker)
 
         self.final_audio = self.task_manager.get_file_path('final_audio')
+
+    def _resolve_speaker(self, speaker: Optional[str]) -> str:
+        """根据 speaker 从配置中解析出实际的 speaker 值。"""
+        provider_name = self.tts_config.get('use')
+        if not provider_name:
+            raise ValueError("No TTS provider specified in config ('tts_providers.use').")
+            
+        provider_config = self.tts_config.get(provider_name)
+        if not provider_config:
+            raise ValueError(f"Configuration for TTS provider '{provider_name}' not found.")
+            
+        speakers = provider_config.get('speakers')
+        if not isinstance(speakers, dict) or not speakers:
+            raise ValueError(f"'speakers' dictionary not found or is empty for provider '{provider_name}'.")
+            
+        # 如果提供了 speaker 并且它存在于 speakers 字典中，则使用它
+        if speaker and speaker in speakers:
+            selected_speaker = speakers[speaker]
+            log.info(f"Using specified speaker '{speaker}': {selected_speaker}")
+            return selected_speaker
+        
+        # 否则，使用默认的 speaker
+        default_speaker = speakers.get('default')
+        if not default_speaker:
+            raise ValueError(f"'default' speaker not found in 'speakers' for provider '{provider_name}'.")
+        
+        log.info(f"Using default speaker: {default_speaker}")
+        return default_speaker
 
     def run(self):
         log.info(f"--- Starting Text-First Audio Preprocessing for Task ID: {self.task_manager.task_id} ---")
@@ -105,10 +135,13 @@ class AudioGenerator:
 
         return scene_chunks
 
-    def _synthesize_audio_segments(self, segments: List[str], **tts_kwargs):
+    def _synthesize_audio_segments(self, segments: List[str]):
         log.info("--- Step 2.2: Synthesizing audio for each segment ---")
-        # Add the task_id to the kwargs for the TTS call, ensuring it's always present.
-        tts_kwargs['task_id'] = self.task_manager.task_id
+        
+        tts_kwargs = {
+            'task_id': self.task_manager.task_id,
+            'speaker': self.speaker
+        }
 
         for i, segment_text in enumerate(tqdm(segments, desc="Synthesizing Audio")):
             audio_segment_path = self.task_manager.get_file_path('audio_segment', index=i)

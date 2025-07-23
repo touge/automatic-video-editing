@@ -57,7 +57,9 @@ tts_providers:
   cosyvoice:
     endpoint: "http://192.168.0.253:8002"
     api_key: "123456" # Optional, if your service requires an API key
-    speaker: "台湾-中年医生-男"
+    speakers:
+      default: "台湾-中年医生-男"
+      GY_JLP: "国语-记录片" # 示例
     speed: 0.95
     remark: "CosyVoice TTS service"
 
@@ -65,7 +67,9 @@ tts_providers:
     api_key: "sk-htjixlgptkfgetortpskpbfwrbiyudkvbnouaufybeojjgms"
     endpoint: "https://api.siliconflow.cn"
     model: "FunAudioLLM/CosyVoice2-0.5B"
-    speaker: "speech:tw-m-doctor:d1joilil401s7387r05g:mphxmkfljxdfxjxvscbm" #speech:tw-m-doctor:d1joilil401s7387r05g:mphxmkfljxdfxjxvscbm" # 可选:FunAudioLLM/CosyVoice2-0.5B：alex/anna/bella/benjamin/charles/claire, david, diana
+    speakers:
+      default: "speech:tw-m-doctor:d1joilil401s7387r05g:mphxmkfljxdfxjxvscbm"
+      claire: "claire" # 示例
     speed: 0.95
     remark: "SiliconFlow TTS service"
 
@@ -143,22 +147,9 @@ asset_search:
   # 增加此值可以提高找到合适素材的几率，但会消耗更多API配额。
   online_search_count: 10
 
-  # 在关键词用尽后，调用Ollama生成新关键词的最大重试次数。
-  # max_keyword_retries: 3
-
   # (新增) 两次在线API请求之间的最小间隔时间（秒）。
   # 用于防止因请求过于频繁而被服务商限制。
   request_delay_seconds: 3
-
-  # 新增两组补齐关键词
-  fallback_en:
-    - healthy lifestyle
-    - wellness routine
-    - exercise motion
-  fallback_cn:
-    - 健康生活方式
-    - 养生日常
-    - 运动镜头
 
 # Scene Detection Parameters
 # --------------------------
@@ -177,10 +168,12 @@ prompts:
   # 用于场景分割 (Stage 1)
   scene_splitter: "assets/prompts/scene_splitter.yaml"
 
-  keyword_generator: "assets/prompts/keyword_generator.yaml"
+  scene_keywords:
+    default: "assets/prompts/keywords_health_and_wellness.yaml"
+    science: "assets/prompts/keywords_science_exploration.yaml"
 
   # 用于在素材搜索失败后生成新的关键词 (Stage 2 retry)
-  asset_keyword_generator: "assets/prompts/asset_keyword_generator.yaml"
+  # asset_keyword_generator: "assets/prompts/asset_keyword_generator.yaml"
 
 # General Settings
 # ----------------

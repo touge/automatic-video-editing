@@ -114,21 +114,28 @@ class TaskManager:
 
     def update_task_status(self, status: str, step: Optional[str] = None, details: Optional[Dict[str, Any]] = None):
         """
-        Updates the status of the task and saves it to a status file.
+        Updates the status of the task by reading the existing status and merging the new data.
+        This ensures that persistent metadata like 'speaker' or 'video_style' is not lost.
+
         :param status: The new status of the task (e.g., PENDING, RUNNING, SUCCESS, FAILED).
-        :param step: Optional string indicating the current major step of the task (e.g., "audio_generation").
-        :param details: Optional dictionary with additional details about the task status.
+        :param step: Optional string indicating the current major step of the task.
+        :param details: Optional dictionary with additional details to be merged into the status.
         """
-        status_data = {
-            "task_id": self.task_id,
-            "status": status,
-            "timestamp": self._get_current_timestamp()
-        }
+        # First, get the current state of the task.
+        status_data = self.get_task_status()
+
+        # Now, update it with the new information.
+        status_data['status'] = status
+        status_data['timestamp'] = self._get_current_timestamp()
+        
         if step:
-            status_data["step"] = step
+            status_data['step'] = step
+        
+        # Merge new details. This will add new keys or overwrite existing ones in the details.
         if details:
             status_data.update(details)
 
+        # Write the updated status back to the file.
         with open(self._get_status_file_path(), 'w', encoding='utf-8') as f:
             json.dump(status_data, f, ensure_ascii=False, indent=4)
 

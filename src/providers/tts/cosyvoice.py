@@ -11,14 +11,15 @@ class CosyVoiceTtsProvider(BaseTtsProvider):
         super().__init__(name, config)
         self.endpoint = self.config.get('endpoint', '').rstrip('/')
         self.api_key = self.config.get('api_key')
-        self.speaker = self.config.get('speaker')
-        self.speed = self.config.get('speed')
+        self.speed = self.config.get('speed', 0.95) # Provide a default speed
         self.api_path = "/speak_as"  # Hardcoded API path for this provider
         
         if not self.endpoint:
             raise ValueError("CosyVoice TTS provider config must contain a 'endpoint'.")
-        if not self.speaker:
-            raise ValueError("CosyVoice TTS provider config must contain a 'speaker'.")
+        
+        # The 'speakers' dictionary is now validated in AudioGenerator, not here.
+        if 'speakers' not in self.config or not isinstance(self.config['speakers'], dict):
+             log.warning("CosyVoice TTS provider config should contain a 'speakers' dictionary.")
 
     def synthesize(self, text: str, task_id: str, **kwargs) -> Dict:
         """
@@ -40,7 +41,10 @@ class CosyVoiceTtsProvider(BaseTtsProvider):
         if self.api_key:
             headers['x-api-key'] = self.api_key
 
-        speaker = kwargs.get('speaker', self.speaker)
+        speaker = kwargs.get('speaker')
+        if not speaker:
+            raise ValueError("'speaker' must be provided in kwargs for synthesize method.")
+            
         return_type = kwargs.get('return_type', 'url')
         # speed = kwargs.get('speed', 0.95)
         speed = kwargs.get('speed', self.speed)

@@ -1,4 +1,5 @@
 import json
+from typing import Optional
 from src.logger import log
 from src.providers.llm import LlmManager
 
@@ -52,56 +53,69 @@ def _parse_llm_json_response(raw_text: str, prompt: str = None) -> dict | None:
     return None
 
 class KeywordGenerator:
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, style: Optional[str] = None):
         self.config = config
         self.llm_manager = LlmManager(config)
         if not self.llm_manager.get_provider():
             raise ValueError("LLM provider is not available for KeywordGenerator.")
         
-        log.info("KeywordGenerator initialized.")
+        log.info(f"KeywordGenerator initialized with style: '{style}'.")
         
-        self.prompt_template = config.get('prompts', {}).get('keyword_generator')
-        if not self.prompt_template:
-            raise ValueError("Keyword generator prompt 'prompts.keyword_generator' not found in config.yaml")
+        self.prompt_template = self._load_prompt_template(style)
+
+    def _load_prompt_template(self, style: Optional[str]) -> str:
+        """根据指定的风格选择提示词模板的路径。"""
+        prompt_config = self.config.get('prompts', {}).get('scene_keywords', {})
+        if not prompt_config:
+            raise ValueError("Prompt config 'prompts.scene_keywords' not found in config.yaml")
+
+        style_key = style if style and style in prompt_config else 'default'
+        
+        prompt_path = prompt_config.get(style_key)
+        if not prompt_path:
+            raise ValueError(f"Prompt path for style '{style_key}' not found in config.")
+
+        log.info(f"Selected keyword prompt for style '{style_key}'")
+        return prompt_path
 
 
     def generate_for_scenes(self, scenes: list) -> list:
-        # 对每条视频描述文本进行 prompt 注入 → 请求模型 → 解析结果 → 校验时长 → 写入结构化结果。
-        # 遍历所有输入的场景（每个场景包含 text 和 duration）
-        min_duration = self.config.get("composition_settings.min_sub_scene_duration", 3)
+        min_duration = self.config.get("composition_settings.min_duration", 3)
         for scene in scenes:
             try:
-                # 🔨 构造提示词：将 scene 文本和时长嵌入模板
-                prompt = self.prompt_template.format(
-                    min_duration=min_duration,
-                    scene_text=scene["text"], 
-                    duration=scene["duration"]
+                # 构造传递给提供者的参数，提供者将负责读取和格式化模板
+                generation_params = {
+                    "min_duration": min_duration,
+                    "scene_text": scene["text"],
+                    "duration": scene["duration"]
+                }
+
+                # self.prompt_template 现在是一个文件路径
+                # 将路径和格式化参数都传递给 LLM 管理器
+                response_text = self.llm_manager.generate_with_failover(
+                    self.prompt_template, 
+                    **generation_params
                 )
 
-                # print(f"prompt:{prompt}")
+                # 解析 LLM 输出的 JSON 文本，转为结构化格式
+                prompt_context_for_logging = f"Template: {self.prompt_template}, Params: {generation_params}"
+                parsed_data = _parse_llm_json_response(response_text, prompt=prompt_context_for_logging)
 
-                # 🎯 向大模型请求生成结果（带 failover 容错处理）
-                response_text = self.llm_manager.generate_with_failover(prompt)
-                # print(f"response_text:{response_text}")
-
-                # 📤 解析 LLM 输出的 JSON 文本，转为结构化格式
-                parsed_data = _parse_llm_json_response(response_text, prompt=prompt)
-
-                # ✅ 如果生成结果合法，并且包含 'scenes' 字段
+                # 如果生成结果合法，并且包含 'scenes' 字段
                 if parsed_data and isinstance(parsed_data, dict) and 'scenes' in parsed_data:
                     sub_scenes = parsed_data.get('scenes', [])
                     scene['scenes'] = sub_scenes
                 else:
-                    # ❌ 如果解析失败，则设置为空列表
+                    # 如果解析失败，则设置为空列表
                     scene['scenes'] = []
             
             except Exception as e:
-                # 🚨 捕获异常，打印错误日志（截取前30字符避免过长）
+                # 捕获异常，打印错误日志（截取前30字符避免过长）
                 log.error(
                     f"Failed to generate keywords for scene: \"{scene['text'][:30]}...\"。",
                     exc_info=True
                 )
                 scene['scenes'] = []
 
-        # 🔚 返回处理后的完整场景列表
+        # 返回处理后的完整场景列表
         return scenes

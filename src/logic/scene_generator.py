@@ -1,6 +1,7 @@
 import os  # 导入操作系统相关的库
 import re  # 导入正则表达式处理库
 import json  # 导入JSON序列化库
+from typing import Optional
 from src.core.task_manager import TaskManager  # 从核心模块导入任务管理器
 from src.core.scenes_process import SceneProcess  # 从逻辑模块导入场景生成器
 from src.logger import log  # 从日志模块导入日志记录器
@@ -10,13 +11,14 @@ class SceneGenerator:  # 定义一个场景分析器类
     负责分析脚本并生成带关键字的场景。
     不处理素材下载。
     """
-    def __init__(self, task_id: str):  # 构造函数，接收任务ID
+    def __init__(self, task_id: str, style: Optional[str] = None):  # 构造函数，接收任务ID
         if not task_id:  # 如果未提供task_id，抛出错误
            raise ValueError("A task_id must be provided.")
         
         self.task_id = task_id  # 保存任务ID
+        self.style = style
         self.task_manager = TaskManager(task_id)  # 初始化任务管理器
-        self.scene_process = SceneProcess(task_id)  # 初始化场景生成器
+        self.scene_process = SceneProcess(task_id, style=self.style)  # 初始化场景生成器
 
 
     def run(self):

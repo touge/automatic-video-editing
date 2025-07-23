@@ -3,10 +3,10 @@ import sys
 import base64
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Body, Request, BackgroundTasks
 from typing import Optional, Literal, Dict, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.responses import FileResponse
 import httpx
-from starlette.concurrency import run_in_threadpool # Import run_in_threadpool
+from starlette.concurrency import run_in_threadpool
 
 from src.core.task_manager import TaskManager
 from src.logic.audio_generator import AudioGenerator
@@ -14,7 +14,6 @@ from src.api.security import verify_token
 from src.logger import log
 from src.utils import get_relative_url
 
-# Add project root to the Python path to allow module imports
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
@@ -24,6 +23,12 @@ router = APIRouter(
     tags=["Audio & Subtitles - Audio and Subtitles"],
     dependencies=[Depends(verify_token)]
 )
+
+class AudioGenerationRequest(BaseModel):
+    """
+    JSON structure for audio generation request. This is currently empty as no payload is required.
+    """
+    pass
 
 async def _generate_audio_task(task_id: str, request: Request):
     """Background task: Generate audio and initial scenes from the script."""
@@ -35,8 +40,13 @@ async def _generate_audio_task(task_id: str, request: Request):
             details={"message": "Audio generation task has started."}
         )
         
+        # 从 status.json 获取 speaker
+        status_data = task_manager.get_task_status()
+        speaker = status_data.get("speaker")
+        log.info(f"Retrieved speaker '{speaker}' for task '{task_id}'.")
+
         script_path = task_manager.get_file_path('original_doc')
-        preprocessor = AudioGenerator(task_id=task_id, doc_file=script_path)
+        preprocessor = AudioGenerator(task_id=task_id, doc_file=script_path, speaker=speaker)
         
         await run_in_threadpool(preprocessor.run)
         
@@ -63,7 +73,12 @@ async def _generate_audio_task(task_id: str, request: Request):
         )
 
 @router.post("/{task_id}/audio", summary="Generate audio and scenes from script (Async)")
-async def generate_audio(task_id: str, background_tasks: BackgroundTasks, request: Request):
+async def generate_audio(
+    task_id: str,
+    background_tasks: BackgroundTasks,
+    request: Request,
+    payload: AudioGenerationRequest = None # Payload is no longer used but kept for compatibility
+):
     try:
         task_manager = TaskManager(task_id)
         script_path = task_manager.get_file_path('original_doc')

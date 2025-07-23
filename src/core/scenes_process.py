@@ -24,6 +24,7 @@ SceneGenerator 是一个用于自动生成视频分镜及关键词的核心类�
 import os
 import re
 import json
+from typing import Optional
 from tqdm import tqdm
 from pathlib import Path
 
@@ -67,11 +68,12 @@ class SceneProcess:
             log.error(f"Error saving final scenes data: {e}")
             return False
 
-    def __init__(self, task_id: str):
+    def __init__(self, task_id: str, style: Optional[str] = None):
         # 初始化 SceneGenerator 实例，绑定任务 ID
         if not task_id:
             raise ValueError("A task_id must be provided.")
         self.task_manager = TaskManager(task_id)
+        self.style = style
 
     def run(self):
         # 主流程：生成分镜与关键词
@@ -112,7 +114,7 @@ class SceneProcess:
 
     def _generate_keywords_for_scenes(self, scenes: list) -> list:
         log.info("--- Step 3: Generating keywords for each scene ---")
-        keyword_gen = KeywordGenerator(config)
+        keyword_gen = KeywordGenerator(config, style=self.style)
         
         # 第一次关键词生成
         log.info("Starting initial keyword generation pass...")

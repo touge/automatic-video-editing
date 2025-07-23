@@ -14,7 +14,6 @@ class SiliconflowTtsProvider(BaseTtsProvider):
         self.api_key = self.config.get('api_key')
         self.endpoint = self.config.get('endpoint', 'https://api.siliconflow.cn').rstrip('/')
         self.model = self.config.get('model')
-        self.speaker = self.config.get('speaker')
         self.speed = self.config.get('speed', 1.0) # 默认值
         self.sample_rate = self.config.get('sample_rate', 16000) # 新增
         self.stream = self.config.get('stream', False) # 新增
@@ -23,8 +22,9 @@ class SiliconflowTtsProvider(BaseTtsProvider):
             raise ValueError("SiliconFlow TTS provider config must contain an 'api_key'.")
         if not self.model:
             raise ValueError("SiliconFlow TTS provider config must contain a 'model'.")
-        if not self.speaker:
-            raise ValueError("SiliconFlow TTS provider config must contain a 'speaker'.")
+        
+        if 'speakers' not in self.config or not isinstance(self.config['speakers'], dict):
+            log.warning("SiliconFlow TTS provider config should contain a 'speakers' dictionary.")
 
     def synthesize(self, text: str, task_id: str, **kwargs) -> Dict:
         """
@@ -45,7 +45,9 @@ class SiliconflowTtsProvider(BaseTtsProvider):
         }
 
         # Use configured speaker unless overridden in kwargs
-        speaker = kwargs.get('speaker', self.speaker)
+        speaker = kwargs.get('speaker')
+        if not speaker:
+            raise ValueError("'speaker' must be provided in kwargs for synthesize method.")
         # Model is fixed from config
         model = self.model
         # Use configured speed unless overridden in kwargs

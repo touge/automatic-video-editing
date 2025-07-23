@@ -4,6 +4,7 @@ import base64
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Body, Request
 from typing import Optional, Literal, Dict, Any # Keep Dict, Any for create_task return type
 from pydantic import BaseModel
+from pathlib import Path
 
 from src.core.task_manager import TaskManager
 from src.api.security import verify_token
@@ -20,10 +21,15 @@ router = APIRouter(
     dependencies=[Depends(verify_token)]
 )
 
+# 允许的文件后缀
+ALLOWED_EXTENSIONS = {".txt", ".md", ".docx"}
+
 @router.post("", summary="Create and initialize a task")
 async def create_task(
     task_id: Optional[str] = Form("", description="Optional task ID to overwrite or continue an existing task."),
-    file: UploadFile = File(..., description="The script file (.txt) for the video.")
+    file: UploadFile = File(..., description="The script file (.txt) for the video."),
+    speaker: Optional[str] = Form(None, description="The speaker for TTS."),
+    video_style: Optional[str] = Form(None, description="The style of the video, e.g., 'science', 'health'.")
 ):
     """
     Creates a new task or uses an existing one, and uploads the script file.
@@ -32,7 +38,9 @@ async def create_task(
                    If left empty, a new task ID will be generated automatically.
     - **file**: (Required) A text document to be used as the video script.
     """
-    if not file.filename.endswith('.txt'):
+    # if not file.filename.endswith('.txt'):
+    ext = Path(file.filename).suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail="Invalid file type. Please upload a .txt file.")
 
     try:
@@ -48,10 +56,19 @@ async def create_task(
             message = f"Existing task '{task_manager.task_id}' updated with new script."
         
         # Task creation/update is an atomic operation, so its status is SUCCESS upon completion.
+        details = {
+            "message": message,
+            "script_path": saved_path
+        }
+        if speaker:
+            details["speaker"] = speaker
+        if video_style:
+            details["video_style"] = video_style
+
         task_manager.update_task_status(
             TaskManager.STATUS_SUCCESS,
             step=step_name,
-            details={"message": message, "script_path": saved_path}
+            details=details
         )
 
         return {
