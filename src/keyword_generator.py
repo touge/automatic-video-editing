@@ -12,13 +12,13 @@ def _parse_llm_json_response(raw_text: str, prompt: str = None) -> dict | None:
     It handles markdown code blocks, conversational text, and <think> blocks.
     """
     # --- 调试代码：打印完整的输入和输出 ---
-    print("\n" + "="*30 + " LLM DEBUG START " + "="*30)
-    if prompt:
-        print("\n--- PROMPT SENT TO LLM ---\n")
-        print(prompt)
-    print("\n--- RAW RESPONSE FROM LLM ---\n")
-    print(raw_text)
-    print("\n" + "="*31 + " LLM DEBUG END " + "="*31 + "\n")
+    # print("\n" + "="*30 + " LLM DEBUG START " + "="*30)
+    # if prompt:
+    #     print("\n--- PROMPT SENT TO LLM ---\n")
+    #     print(prompt)
+    # print("\n--- RAW RESPONSE FROM LLM ---\n")
+    # print(raw_text)
+    # print("\n" + "="*31 + " LLM DEBUG END " + "="*31 + "\n")
     # --- 调试代码结束 ---
 
     # 1. 移除 <think>...</think> 块
