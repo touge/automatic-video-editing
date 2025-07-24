@@ -22,20 +22,19 @@ pixabay:
 
 llm_providers:
   # 主要控制点：明确指定要使用的LLM提供者
-  use: "ollama"  # 约定使用的LLM，代码中不再进行探测，唯一可用
+  use: "siliconflow"  # 约定使用的LLM，代码中不再进行探测，唯一可用
 
   # LLM调用失败后的重试次数
   retries: 3
 
   ollama:
-    # 约定LLM提供者中只有唯一的模型
-    model: "qwen3:14b"
+    model: "gemma3:12b"
+    # model: "qwen3:14b"
     host: "http://127.0.0.1:11434"
     remark: "本地模型服务，适用于关键词提取和场景分割"
 
   siliconflow:
     api_key: "sk-pvracxuykfnajymvqjyxxfmqiwfmqchlsasekahpilkysiiq"  # 请替换为您的 API Key
-    # 约定LLM提供者中只有唯一的模型
     model: "Qwen/Qwen3-14B"
     host: "https://api.siliconflow.cn/v1"
     remark: "硅基流动, 用于生成视频脚本和关键词"
@@ -90,11 +89,22 @@ composition_settings:
   # (新增) 子场景（镜头）的最小持续时间（秒）。
   # LLM生成的所有子场景时长都不得低于此值。
   # 代码中也会有后处理逻辑，以确保最终所有镜头都满足此要求。
-  min_duration: 3
+  min_duration: 5
   size: 
     width: 1920
     height: 1080
   fps: 30
+
+# Scene Detection Parameters
+# --------------------------
+# 用于阶段一的语义场景分割。
+scene_detection:
+  splitter:
+    # LLM一次处理的字幕行数。
+    chunk_size: 50
+    # 区块之间的重叠行数，以确保上下文连续性。
+    overlap: 10
+
 
 video:
   width: 1920
@@ -144,36 +154,21 @@ paths:
 # ---------------------
 asset_search:
   # 每次在线搜索时，向Pexels或Pixabay请求的素材数量。
-  # 增加此值可以提高找到合适素材的几率，但会消耗更多API配额。
   online_search_count: 10
 
-  # (新增) 两次在线API请求之间的最小间隔时间（秒）。
-  # 用于防止因请求过于频繁而被服务商限制。
+  # (新增) 两次在线API请求之间的最小间隔时间（秒）。用于防止因请求过于频繁而被服务商限制。
   request_delay_seconds: 3
-
-# Scene Detection Parameters
-# --------------------------
-# 用于阶段一的语义场景分割。
-scene_detection:
-  splitter:
-    # LLM一次处理的字幕行数。
-    chunk_size: 50
-    # 区块之间的重叠行数，以确保上下文连续性。
-    overlap: 10
 
 # Prompt Engineering
 # ------------------
 # 用于指导大语言模型完成特定任务的提示词模板。
 prompts:
   # 用于场景分割 (Stage 1)
-  scene_splitter: "assets/prompts/scene_splitter.yaml"
+  scene_splitter: "assets/prompts/scene_splitter.md"
 
   scene_keywords:
-    default: "assets/prompts/keywords_health_and_wellness.yaml"
-    science: "assets/prompts/keywords_science_exploration.yaml"
-
-  # 用于在素材搜索失败后生成新的关键词 (Stage 2 retry)
-  # asset_keyword_generator: "assets/prompts/asset_keyword_generator.yaml"
+    default: "assets/prompts/keywords_health_and_wellness.md"
+    science: "assets/prompts/keywords_science_exploration.md"
 
 # General Settings
 # ----------------

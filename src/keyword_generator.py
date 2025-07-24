@@ -1,3 +1,4 @@
+import os
 import json
 from typing import Optional
 from src.logger import log
@@ -8,10 +9,23 @@ import re
 def _parse_llm_json_response(raw_text: str, prompt: str = None) -> dict | None:
     """
     Robustly parses a JSON object from the LLM's raw output.
-    It handles markdown code blocks and conversational text around the JSON.
+    It handles markdown code blocks, conversational text, and <think> blocks.
     """
-    # 1. 优先查找 ```json ... ``` 代码块
-    match = re.search(r'```json\s*([\s\S]*?)\s*```', raw_text)
+    # --- 调试代码：打印完整的输入和输出 ---
+    print("\n" + "="*30 + " LLM DEBUG START " + "="*30)
+    if prompt:
+        print("\n--- PROMPT SENT TO LLM ---\n")
+        print(prompt)
+    print("\n--- RAW RESPONSE FROM LLM ---\n")
+    print(raw_text)
+    print("\n" + "="*31 + " LLM DEBUG END " + "="*31 + "\n")
+    # --- 调试代码结束 ---
+
+    # 1. 移除 <think>...</think> 块
+    cleaned_text = re.sub(r'<think>[\s\S]*?</think>', '', raw_text).strip()
+
+    # 2. 优先查找 ```json ... ``` 代码块
+    match = re.search(r'```json\s*([\s\S]*?)\s*```', cleaned_text)
     if match:
         json_str = match.group(1)
         try:
@@ -23,10 +37,10 @@ def _parse_llm_json_response(raw_text: str, prompt: str = None) -> dict | None:
                 log.warning(f"--- PROMPT THAT CAUSED THE ERROR ---\n{prompt}\n---------------------------------")
             return None
 
-    # 2. 如果没有代码块，则查找第一个 '{' 或 '['，并从那里开始解码
+    # 3. 如果没有代码块，则查找第一个 '{' 或 '['，并从那里开始解码
     # 这种方法对于 JSON 前后的对话性文本更健壮
-    start_brace = raw_text.find('{')
-    start_bracket = raw_text.find('[')
+    start_brace = cleaned_text.find('{')
+    start_bracket = cleaned_text.find('[')
 
     start_index = -1
     if start_brace != -1 and start_bracket != -1:
@@ -40,16 +54,16 @@ def _parse_llm_json_response(raw_text: str, prompt: str = None) -> dict | None:
         try:
             # 使用 raw_decode 从字符串中解析第一个有效的 JSON 对象
             decoder = json.JSONDecoder()
-            obj, _ = decoder.raw_decode(raw_text[start_index:])
+            obj, _ = decoder.raw_decode(cleaned_text[start_index:])
             return obj
         except json.JSONDecodeError as e:
             log.error("Failed to parse LLM JSON response: %s", e)
-            log.warning("--- RAW LLM RESPONSE THAT CAUSED THE ERROR ---\n%r\n---------------------------------", raw_text)
+            log.warning("--- RAW LLM RESPONSE THAT CAUSED THE ERROR ---\n%r\n---------------------------------", cleaned_text)
             if prompt:
                 log.warning(f"--- PROMPT THAT CAUSED THE ERROR ---\n{prompt}\n---------------------------------")
             return None
 
-    log.warning("No valid JSON object found in LLM response. Response: %r", raw_text[:200] + "...")
+    log.warning("No valid JSON object found in LLM response. Response: %r", cleaned_text[:200] + "...")
     return None
 
 class KeywordGenerator:
@@ -64,37 +78,58 @@ class KeywordGenerator:
         self.prompt_template = self._load_prompt_template(style)
 
     def _load_prompt_template(self, style: Optional[str]) -> str:
-        """根据指定的风格选择提示词模板的路径。"""
+        """根据指定的风格加载提示词模板，可以是路径也可以是内容。"""
         prompt_config = self.config.get('prompts', {}).get('scene_keywords', {})
         if not prompt_config:
             raise ValueError("Prompt config 'prompts.scene_keywords' not found in config.yaml")
 
         style_key = style if style and style in prompt_config else 'default'
         
-        prompt_path = prompt_config.get(style_key)
-        if not prompt_path:
-            raise ValueError(f"Prompt path for style '{style_key}' not found in config.")
+        prompt_path_or_content = prompt_config.get(style_key)
+        if not prompt_path_or_content:
+            raise ValueError(f"Prompt for style '{style_key}' not found in config.")
 
-        log.info(f"Selected keyword prompt for style '{style_key}'")
-        return prompt_path
+        log.info(f"Loading keyword prompt for style '{style_key}'")
+
+        # 检查值是否是一个存在的文件路径
+        if isinstance(prompt_path_or_content, str) and os.path.exists(prompt_path_or_content):
+            try:
+                with open(prompt_path_or_content, 'r', encoding='utf-8') as f:
+                    prompt_content = f.read()
+                log.info(f"Loaded keyword prompt from file: {prompt_path_or_content}")
+                return prompt_content
+            except Exception as e:
+                raise IOError(f"Error reading keyword prompt file {prompt_path_or_content}: {e}")
+        else:
+            # 如果不是有效路径，则假定它本身就是提示内容
+            log.info("Using keyword prompt directly from config content.")
+            return prompt_path_or_content
 
 
     def generate_for_scenes(self, scenes: list) -> list:
         min_duration = self.config.get("composition_settings.min_duration", 3)
         for scene in scenes:
             try:
-                # 构造传递给提供者的参数，提供者将负责读取和格式化模板
+                # 构造用于格式化提示词的完整参数
                 generation_params = {
                     "min_duration": min_duration,
                     "scene_text": scene["text"],
-                    "duration": scene["duration"]
+                    "duration": scene["duration"],
+                    # 为模板中所有可能的占位符提供默认值，以防 KeyError
+                    "emotion_tags": "N/A",
+                    "camera_tags": "N/A",
+                    "action_tags": "N/A",
+                    "scene_tags": "N/A",
+                    "health_tags": "N/A"
                 }
 
-                # self.prompt_template 现在是一个文件路径
-                # 将路径和格式化参数都传递给 LLM 管理器
+                # 在调用 LLM 之前，先将提示词模板完整格式化
+                final_prompt = self.prompt_template.format(**generation_params)
+
+                # 仅将最终的、已格式化的提示词传递给 LLM 管理器
+                # 这样既能确保提示词内容正确，又能避免将无效参数传递给底层 API
                 response_text = self.llm_manager.generate_with_failover(
-                    self.prompt_template, 
-                    **generation_params
+                    prompt=final_prompt
                 )
 
                 # 解析 LLM 输出的 JSON 文本，转为结构化格式

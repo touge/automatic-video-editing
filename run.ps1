@@ -41,10 +41,10 @@ Write-Host "PyTorch version: " -NoNewline -ForegroundColor Cyan
 & $pythonExe -c "import torch; print(torch.__version__)"
 
 $uvicornArgs = @(
-    "src.api.main:app",
-    "--host", "0.0.0.0",
-    "--port", $Port.ToString(),
-    "--reload"
+    "src.api.main:app"
+    ,"--host", "0.0.0.0"
+    ,"--port", $Port.ToString()
+    # ,"--reload"
 )
 
 Write-Host "Starting LexiVision AI Search on port $Port..." -ForegroundColor Green

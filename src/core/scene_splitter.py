@@ -19,9 +19,22 @@ class SceneSplitter:
         log.info("Scene splitter initialized.")
 
         prompts_config = self.config.get('prompts', {})
-        self.prompt_template = prompts_config.get('scene_splitter')
-        if not self.prompt_template:
+        prompt_path_or_content = prompts_config.get('scene_splitter')
+        if not prompt_path_or_content:
             raise ValueError("Scene splitter prompt 'prompts.scene_splitter' not found in config.yaml")
+
+        # 检查值是否是一个存在的文件路径
+        if isinstance(prompt_path_or_content, str) and os.path.exists(prompt_path_or_content):
+            try:
+                with open(prompt_path_or_content, 'r', encoding='utf-8') as f:
+                    self.prompt_template = f.read()
+                log.info(f"Loaded scene splitter prompt from file: {prompt_path_or_content}")
+            except Exception as e:
+                raise IOError(f"Error reading scene splitter prompt file {prompt_path_or_content}: {e}")
+        else:
+            # 如果不是有效路径，则假定它本身就是提示内容
+            self.prompt_template = prompt_path_or_content
+            log.info("Using scene splitter prompt directly from config content.")
         
         splitter_config = config.get('scene_detection', {}).get('splitter', {})
         self.chunk_size = splitter_config.get('chunk_size', 50)

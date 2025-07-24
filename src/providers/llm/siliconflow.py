@@ -30,24 +30,46 @@ class SiliconflowProvider(BaseLlmProvider):
     def generate(self, prompt: str, **kwargs) -> str:
         """
         使用SiliconFlow生成文本。
+        此实现直接调用 completion API，并过滤掉不支持的参数。
         """
-        messages = [{"role": "user", "content": prompt}]
-        return self.chat(messages, **kwargs)
+        model = kwargs.pop('model', self.default_model)
+        if model != self.model:
+            raise ValueError(f"Model '{model}' is not the configured model for provider '{self.name}'. Configured model: {self.model}")
+
+        # 仅传递 'temperature' 和 'max_tokens' 等有效参数
+        supported_params = ['temperature', 'max_tokens', 'top_p', 'top_k', 'stop']
+        generation_kwargs = {k: v for k, v in kwargs.items() if k in supported_params}
+
+        try:
+            messages = [{"role": "user", "content": prompt}]
+            completion = self.client.chat.completions.create(
+                model=model,
+                messages=messages,
+                **generation_kwargs
+            )
+            return completion.choices[0].message.content
+        except Exception as e:
+            log.error(f"SiliconFlow generation failed: {e}", exc_info=True)
+            raise
 
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
         """
-        使用SiliconFlow进行聊天。
+        使用SiliconFlow进行聊天，并过滤掉不支持的参数。
         """
         model = kwargs.pop('model', self.default_model)
-        if model != self.model: # Check if the requested model matches the configured single model
+        if model != self.model:
             raise ValueError(f"Model '{model}' is not the configured model for provider '{self.name}'. Configured model: {self.model}")
             
+        supported_params = ['temperature', 'max_tokens', 'top_p', 'top_k', 'stop']
+        chat_kwargs = {k: v for k, v in kwargs.items() if k in supported_params}
+
         try:
             completion = self.client.chat.completions.create(
                 model=model,
                 messages=messages,
-                **kwargs
+                **chat_kwargs
             )
             return completion.choices[0].message.content
         except Exception as e:
+            log.error(f"SiliconFlow chat failed: {e}", exc_info=True)
             raise
