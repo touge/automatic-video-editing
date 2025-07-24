@@ -47,4 +47,3 @@ Transform the provided Chinese narration into **visually searchable** scene segm
 ⏱ All individual scene durations must be ≥ {min_duration} seconds. Never generate any scene with time less than this threshold.
 
 ---
-
