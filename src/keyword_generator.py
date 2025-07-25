@@ -29,6 +29,8 @@ def _parse_llm_json_response(raw_text: str, prompt: str = None) -> dict | None:
     if match:
         json_str = match.group(1)
         try:
+            # 移除JSON中常见的尾随逗号，以增强解析的健壮性
+            json_str = re.sub(r',\s*([\]}])', r'\1', json_str)
             return json.loads(json_str)
         except json.JSONDecodeError as e:
             log.error("Failed to parse JSON from markdown block: %s", e)

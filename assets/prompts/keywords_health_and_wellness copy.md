@@ -19,7 +19,7 @@ Transform the provided Chinese narration into **visually searchable** scene segm
      - Keyword 3: Broad fallback term usable in footage libraries
    - `zh_keys`: Exact Chinese translations of the above keywords
    - `source_text`: Quoted portion of the Chinese input used as the basis for this scene
-   - `time`: Exact duration in seconds for this scene. **MUST be a positive float (time > 0).**
+   - `time`: Exact duration in seconds for this scene
 
 ✅ Keyword Rules:
 - MUST be visually specific and independently searchable in footage libraries (e.g. “elderly man sleeping”).
@@ -45,6 +45,5 @@ Transform the provided Chinese narration into **visually searchable** scene segm
 
 ⛔️ Absolutely avoid generating scenes that go beyond the input text’s meaning or invent settings, people, or actions not grounded in the source narration.
 ⏱ All individual scene durations must be ≥ {min_duration} seconds. Never generate any scene with time less than this threshold.
-⏱ **The sum of 'time' for all sub-scenes MUST equal the parent scene's total 'duration'.**
 
 ---

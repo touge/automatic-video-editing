@@ -93,7 +93,7 @@ class AssetsProcess:
         online_search_count = config.get('asset_search', {}).get('online_search_count', 10)
 
         for i, sub_scene in enumerate(sub_scenes_iterable):
-            sub_scenes_iterable.set_description(f"Finding Asset {i+1}/{len(all_sub_scenes)}\n")
+            sub_scenes_iterable.set_description(f"Finding Asset {i+1}/{len(all_sub_scenes)}")
             
             keywords = sub_scene.get('keys', [])
             if not keywords:

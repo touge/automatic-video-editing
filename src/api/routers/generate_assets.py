@@ -15,6 +15,7 @@ from src.api.security import verify_token
 from src.logger import log
 from starlette.concurrency import run_in_threadpool
 from src.logic.assets_generator import AssetsGenerator
+from src.core.scene_validator import SceneValidator
 
 router = APIRouter(
     prefix="/tasks",
@@ -33,6 +34,13 @@ async def _prepare_assets_task(task_id: str):
             details={"message": "Video asset acquisition task has started."}
         )
         
+        # 在处理之前验证和修复场景文件
+        log.info("Running scene validation before asset generation...")
+        validator = SceneValidator(task_id)
+        if not validator.validate_and_fix():
+            raise RuntimeError("Scene validation and fixing failed. Cannot proceed with asset generation.")
+        log.success("Scene validation completed.")
+
         preprocessor = AssetsGenerator(task_id)
         await run_in_threadpool(preprocessor.run)
         
