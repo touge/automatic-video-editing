@@ -35,6 +35,7 @@ from src.keyword_generator import KeywordGenerator
 from src.logger import log
 from src.core.task_manager import TaskManager
 from src.core.subtitle_timing_fixer import SubtitleTimingFixer  # 导入字幕时间修复工具
+from src.core.scene_validator import SceneValidator # 导入场景验证工具
 
 class SceneProcess:
     @classmethod
@@ -104,6 +105,14 @@ class SceneProcess:
         # 保存结果到文件
         self.save_final_scenes(scenes_with_keywords, self.task_manager.task_id)
 
+        # 保存后统一验证和修复场景文件
+        log.info("Running scene validation and fixing after saving final scenes...")
+        validator = SceneValidator(self.task_manager.task_id)
+        if not validator.validate_and_fix():
+            log.error("Scene validation and fixing failed. Final scenes might be incomplete or incorrect.")
+        else:
+            log.success("Scene validation and fixing completed successfully.")
+
         log.info("############################################################")
         log.success(f"Scene generation and keyword analysis complete!")
         log.info(f"Task ID: {self.task_manager.task_id}")
@@ -140,8 +149,13 @@ class SceneProcess:
 
     def _srt_time_to_seconds(self, time_str: str) -> float:
         """将 SRT 时间字符串 (HH:MM:SS,ms) 转换为秒数 float"""
-        parts = re.split(r'[:,]', time_str)
-        return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2]) + int(parts[3]) / 1000
+        try:
+            h_str, m_str, s_ms_str = time_str.split(':')
+            s_str, ms_str = s_ms_str.split(',')
+            return int(h_str) * 3600 + int(m_str) * 60 + int(s_str) + int(ms_str) / 1000
+        except (ValueError, IndexError) as e:
+            log.error(f"无法解析SRT时间字符串: '{time_str}'。错误: {e}")
+            return 0.0
 
     def _parse_srt_file(self, srt_path: str) -> list:
         """
@@ -172,7 +186,7 @@ class SceneProcess:
             }
             segments.append(segment)
 
-        print(f"解析完成，共找到: {len(segments)} 个字幕片段。")
+        log.info(f"解析完成，共找到: {len(segments)} 个字幕片段。")
         return segments
 
     def _parse_srt(self) -> list:
