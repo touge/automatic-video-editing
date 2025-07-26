@@ -42,4 +42,3 @@ Transform the provided Chinese narration into visually searchable scene segments
 
 🗣 Scene Description (in Chinese): "{scene_text}"
 ---
->>>>>>> f50f115 (feat: 优化场景关键词生成的prompt，确保子场景时长不低于配置值)

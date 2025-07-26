@@ -149,22 +149,22 @@ class SceneValidator:
             is_modified = True
             # 如果当前场景时长不足，且后面还有场景可以合并
             if scenes_to_merge:
-                next_scene = scenes_to_merge
+                next_scene = scenes_to_merge[0]
                 log.warning(f"Merging short scene (duration: {current_scene['time']}) with next scene (duration: {next_scene['time']}).")
                 
                 # 合并关键词和文本
-                next_scene['keys'] = list(set(current_scene['keys'] + next_scene['keys']))
-                next_scene['zh_keys'] = list(set(current_scene['zh_keys'] + next_scene['zh_keys']))
-                next_scene['source_text'] = current_scene['source_text'] + " " + next_scene['source_text']
+                next_scene['keys'] = list(set(current_scene.get('keys', []) + next_scene.get('keys', [])))
+                next_scene['zh_keys'] = list(set(current_scene.get('zh_keys', []) + next_scene.get('zh_keys', [])))
+                next_scene['source_text'] = (current_scene.get('source_text', '') + " " + next_scene.get('source_text', '')).strip()
                 next_scene['time'] += current_scene['time']
             else:
                 # 如果是最后一个场景且时长不足，则尝试与前一个合并
                 if valid_scenes:
                     log.warning(f"Merging last short scene (duration: {current_scene['time']}) with previous scene.")
                     last_valid_scene = valid_scenes[-1]
-                    last_valid_scene['keys'] = list(set(last_valid_scene['keys'] + current_scene['keys']))
-                    last_valid_scene['zh_keys'] = list(set(last_valid_scene['zh_keys'] + current_scene['zh_keys']))
-                    last_valid_scene['source_text'] += " " + current_scene['source_text']
+                    last_valid_scene['keys'] = list(set(last_valid_scene.get('keys', []) + current_scene.get('keys', [])))
+                    last_valid_scene['zh_keys'] = list(set(last_valid_scene.get('zh_keys', []) + current_scene.get('zh_keys', [])))
+                    last_valid_scene['source_text'] = (last_valid_scene.get('source_text', '') + " " + current_scene.get('source_text', '')).strip()
                     last_valid_scene['time'] += current_scene['time']
                 else:
                     # 如果只有一个场景且时长不足，则强制设置为父场景时长
