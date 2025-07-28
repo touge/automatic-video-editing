@@ -40,3 +40,5 @@ colorama
 rich
 pydub
 markdown2
+
+selenium

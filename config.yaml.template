@@ -2,23 +2,40 @@
 # -------------------
 
 # ==============================================================================
-# AI 智能搜索配置 (新增)
+# 搜索提供者配置
 # ==============================================================================
-ai_search:
-  # 您的 AI 搜索服务 API 密钥
-  api_key: "YOUR_API_KEY_HERE"
-  # 您的 AI 搜索服务 API 端点 URL
-  api_url: "http://127.0.0.1:8004/api/videos/text"
+search_providers:
+  # 提供者的执行顺序。这里的名称必须与下面的配置块名称匹配。
+  provider_order:
+    - "ai_search"
+    - "envato"
+    - "pexels"
+    - "pixabay"
 
-# 前往 https://www.pexels.com/api/ 获取你的免费API Key
-pexels:
-  api_host: "https://api.pexels.com"
-  api_key: "YOUR_PEXELS_API_KEY"
+  ai_search:
+    enabled: true
+    api_key: "YOUR_API_KEY_HERE"
+    api_url: "http://127.0.0.1:8004/api/videos/text"
 
-# 前往 https://pixabay.com/api/docs/ 获取你的免费API Key
-pixabay:
-  api_host: "https://pixabay.com"
-  api_key: "YOUR_PIXABAY_API_KEY"
+  pexels:
+    enabled: true
+    api_host: "https://api.pexels.com"
+    api_key: "YOUR_PEXELS_API_KEY"
+
+  pixabay:
+    enabled: true
+    api_host: "https://pixabay.com"
+    api_key: "YOUR_PIXABAY_API_KEY"
+
+  envato:
+    enabled: false # 默认禁用，因为需要手动配置
+    username: "YOUR_ENVATO_USERNAME"
+    password: "YOUR_ENVATO_PASSWORD"
+    chrome_driver_path: "assets/chromedriver.exe"
+    headless_mode: false
+    wait_timeout: 20
+    license_name: "Gemini" # 请替换为您在Envato上创建的项目/许可证名称
+    target_resolutions: ["1080p", "2K"] # 分辨率下载优先级, e.g., ["1080p", "2K", "720p"]
 
 llm_providers:
   # 主要控制点：明确指定要使用的LLM提供者

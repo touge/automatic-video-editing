@@ -12,12 +12,13 @@ class AiSearchProvider(BaseVideoProvider):
     通过AI API搜索视频的提供者。
     """
     def __init__(self, config: dict):
-        ai_search_config = config.get('ai_search', {})
+        super().__init__()
+        ai_search_config = config.get('search_providers', {}).get('ai_search', {})
         self.api_key = ai_search_config.get('api_key')
         self.api_url = ai_search_config.get('api_url')
         if not self.api_key or not self.api_url:
-            raise ValueError("AI Search API key or URL not found in config.yaml under 'ai_search'")
-        self.enabled = True
+            raise ValueError("AI Search API key or URL not found in config.yaml under 'search_providers.ai_search'")
+        self.enabled = ai_search_config.get('enabled', False)
 
     def search(self, keywords: List[str], count: int = 1, min_duration: float = 0) -> List[Dict[str, Any]]:
         """

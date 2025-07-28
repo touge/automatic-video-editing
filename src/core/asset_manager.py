@@ -10,17 +10,12 @@ from src.providers.llm import LlmManager
 from typing import List, Set, Dict, Any
 from .database_manager import DatabaseManager
 from src.logger import log
-from src.color_utils import (
-    print_colored,
-    print_error,
-    print_success,
-    print_info,
-)
 from src.utils import get_video_duration
 # --- 新增导入 ---
 from src.providers.search.pexels import PexelsProvider
 from src.providers.search.pixabay import PixabayProvider
 from src.providers.search.ai_search import AiSearchProvider
+from src.providers.search.envato import EnvatoProvider
 from src.providers.search.base import BaseVideoProvider
 
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -66,41 +61,61 @@ class AssetManager:
         self.task_id = task_id
         self.local_assets_path = config.get('paths', {}).get('local_assets_dir', 'assets/local')
         self.asset_search_config = config.get('asset_search', {})
+        self.search_providers_config = config.get('search_providers', {})
 
         # 新增：从配置中读取API请求延迟，默认为3秒
         self.request_delay = self.asset_search_config.get('request_delay_seconds', 3)
         self.last_online_search_time = None # 新增：用于跟踪上次API调用的时间
 
-        # 初始化数据库管理器
-        # self.db_manager = DatabaseManager()
-        # os.makedirs(self.local_assets_path, exist_ok=True)
-
         # --- 全局已用素材跟踪 ---
         self.used_source_ids: Set[str] = set()
-        self.used_ai_video_names: Set[str] = set() # 新增：只跟踪来自 ai_search 的 video_name
+        self.used_ai_video_names: Set[str] = set()
         self.used_local_paths: Set[str] = set()
 
         # --- 初始化所有可用的视频提供者 ---
-        self.video_providers: List[BaseVideoProvider] = []
-        
-        # 1. 优先添加AI智能搜索提供者 (最高优先级)
-        if config.get('ai_search', {}).get('api_key') and config.get('ai_search', {}).get('api_url'):
-            log.success("AI 智能搜索提供者已启用。")
-            self.video_providers.append(AiSearchProvider(self.config))
-
-        # 3. 添加其他在线提供者
-        if config.get('pexels', {}).get('api_key') and "YOUR_PEXELS_API_KEY_HERE" not in config.get('pexels', {}).get('api_key'):
-            log.success("Pexels 提供者已启用。")
-            self.video_providers.append(PexelsProvider(self.config))
-        if config.get('pixabay', {}).get('api_key') and "YOUR_PIXABAY_API_KEY_HERE" not in config.get('pixabay', {}).get('api_key'):
-            log.success("Pixabay 提供者已启用。")
-            self.video_providers.append(PixabayProvider(self.config))
+        self.video_providers: List[BaseVideoProvider] = self._load_providers()
 
         # 移除LLM关键词生成相关代码
         self.llm_manager = None
         self.asset_system_prompt = None
         self.asset_user_prompt_template = None
         log.info("AssetManager 已初始化，LLM关键词生成功能已禁用。")
+
+    def _load_providers(self) -> List[BaseVideoProvider]:
+        """根据配置文件加载并排序视频提供者。"""
+        providers = []
+        provider_order = self.search_providers_config.get('provider_order', [])
+        
+        provider_map = {
+            "ai_search": AiSearchProvider,
+            "pexels": PexelsProvider,
+            "pixabay": PixabayProvider,
+            "envato": EnvatoProvider,
+        }
+
+        log.info("正在初始化视频搜索提供者...")
+        for provider_name in provider_order:
+            provider_config = self.search_providers_config.get(provider_name, {})
+            if provider_config.get('enabled'):
+                if provider_name in provider_map:
+                    try:
+                        # 将整个 config 传给 provider，让其自行解析
+                        provider_instance = provider_map[provider_name](self.config)
+                        # 检查 provider 在初始化后是否仍然启用
+                        if provider_instance.enabled:
+                            providers.append(provider_instance)
+                            log.success(f"提供者 '{provider_name}' 已成功加载并启用。")
+                        else:
+                            # 初始化过程中提供者自行禁用了（例如，登录失败）
+                            log.warning(f"提供者 '{provider_name}' 在初始化后被禁用。")
+                    except Exception as e:
+                        log.error(f"初始化提供者 '{provider_name}' 失败: {e}")
+                else:
+                    log.warning(f"在 provider_map 中未找到名为 '{provider_name}' 的提供者。")
+            else:
+                log.info(f"提供者 '{provider_name}' 在配置中被禁用，跳过加载。")
+        
+        return providers
 
     def _generate_new_keywords(
         self,
@@ -186,12 +201,25 @@ class AssetManager:
                         log.warning(f"    -> 跳过一个没有唯一ID的素材: {video_info}")
                         continue
 
-                    # --- 下载并验证 ---
-                    log.success(f"    -> 在 {provider_name} 中找到新候选素材: {unique_id} (关键词: '{keyword}')。正在尝试下载和验证...")
-                    path = self._download_asset(video_info)
-                    if not path:
-                        log.warning(f"    -> 下载失败，尝试下一个候选素材。")
-                        continue # 下载失败，尝试下一个
+                    # --- 特殊处理 Envato Provider (它已经自行下载) ---
+                    if source == 'envato':
+                        local_path = video_info.get('local_path')
+                        if local_path and os.path.exists(local_path) and get_video_duration(local_path) is not None:
+                            log.success(
+                                f"    -> Envato 已成功下载并验证素材: {local_path}")
+                            path = local_path
+                        else:
+                            log.warning(
+                                f"    -> Envato 返回的素材无效或不存在: {local_path}。尝试下一个候选素材。")
+                            continue
+                    else:
+                        # --- 其他 Provider 的标准下载流程 ---
+                        log.success(
+                            f"    -> 在 {provider_name} 中找到新候选素材: {unique_id} (关键词: '{keyword}')。正在尝试下载和验证...")
+                        path = self._download_asset(video_info)
+                        if not path:
+                            log.warning(f"    -> 下载失败，尝试下一个候选素材。")
+                            continue
 
                     # --- 标记为已使用并返回 ---
                     self.used_source_ids.add(unique_id)

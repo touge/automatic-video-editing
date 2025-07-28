@@ -7,12 +7,13 @@ from src.logger import log
 class PixabayProvider(BaseVideoProvider):
     def __init__(self, config: dict):
         super().__init__()
-        pixabay_config = config.get('pixabay', {})
+        pixabay_config = config.get('search_providers', {}).get('pixabay', {})
         self.api_key = pixabay_config.get('api_key')
         api_host = pixabay_config.get('api_host', 'https://pixabay.com')
         if not self.api_key:
-            raise ValueError("Pixabay API key not found in config.yaml")
+            raise ValueError("Pixabay API key not found in config.yaml under 'search_providers.pixabay'")
         self.api_url = f"{api_host.rstrip('/')}/api/videos/"
+        self.enabled = pixabay_config.get('enabled', False)
 
     def search(self, keywords: List[str], count: int = 1, min_duration: float = 0) -> List[Dict[str, Any]]:
         """

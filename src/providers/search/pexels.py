@@ -10,12 +10,13 @@ class PexelsProvider(BaseVideoProvider):
     """
     def __init__(self, config: dict):
         super().__init__()
-        pexels_config = config.get('pexels', {})
+        pexels_config = config.get('search_providers', {}).get('pexels', {})
         self.api_key = pexels_config.get('api_key')
         api_host = pexels_config.get('api_host', 'https://api.pexels.com')
         if not self.api_key:
-            raise ValueError("Pexels API key not found in config.yaml")
+            raise ValueError("Pexels API key not found in config.yaml under 'search_providers.pexels'")
         self.api_url = f"{api_host.rstrip('/')}/videos/search"
+        self.enabled = pexels_config.get('enabled', False)
 
     def search(self, keywords: List[str], count: int = 1, min_duration: float = 0) -> List[Dict[str, Any]]:
         """

@@ -32,3 +32,6 @@ tasks/*
 models*
 models/*
 docs/*
+
+chrome_profile_envato
+envato_provider
