@@ -42,3 +42,13 @@ pydub
 markdown2
 
 selenium
+
+yt-dlp>=2024.1.1
+whisper>=1.1.10
+ffmpeg-python>=0.2.0
+openai-whisper  # 如使用 pip 安裝 Whisper 模型
+srt>=3.5.0
+pysrt>=1.1.2
+rich            # 終端輸出美化（可選）
+faster-whisper
+tqdm

@@ -16,7 +16,16 @@ from fastapi.staticfiles import StaticFiles
 # config and log are now initialized by bootstrap.py
 from src.config_loader import config
 from src.logger import log
-from src.api.routers import create_tasks, generate_audio, generate_scenes, generate_assets, generate_subtitles, generate_video, documentation
+from src.api.routers import (
+    create_tasks,
+    generate_audio,
+    generate_scenes,
+    generate_assets,
+    generate_subtitles,
+    generate_video,
+    documentation,
+)
+from src.api.routers.yt import process_video, status, rewrite_manuscript # 导入新的 yt 子路由
 
 # 导入用于设置信号处理器的函数，这是实现优雅关闭的关键
 from src.core.process_manager import setup_signal_handlers
@@ -45,6 +54,9 @@ app.include_router(generate_scenes.router)
 app.include_router(generate_assets.router)
 app.include_router(generate_video.router)
 app.include_router(documentation.router) # Add the documentation router
+app.include_router(process_video.router, prefix="/yt", tags=["YouTube Subtitles"]) # YouTube 视频处理路由
+app.include_router(status.router, prefix="/yt", tags=["YouTube Subtitles"]) # YouTube 任务状态路由
+app.include_router(rewrite_manuscript.router, prefix="/yt", tags=["YouTube Subtitles"]) # YouTube 稿件重写路由
 
 @app.get("/", tags=["Root"], include_in_schema=False)
 async def read_root():
