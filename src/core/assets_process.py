@@ -81,31 +81,53 @@ class AssetsProcess:
             return []
 
     def _find_assets_for_sub_scenes(self, main_scenes: list) -> tuple[list, bool]:
+        """
+        为所有子场景查找并匹配素材。
+
+        Args:
+            main_scenes (list): 包含主场景信息的列表。
+
+        Returns:
+            tuple[list, bool]: 返回更新后的主场景列表和一个表示操作是否成功的布尔值。
+        """
+        # 初始化素材管理器
         asset_manager = AssetManager(config, self.task_manager.task_id)
         
+        # 从主场景列表中提取所有子场景，构建一个扁平化的列表
         all_sub_scenes = [
             sub_scene
             for main_scene in main_scenes
             for sub_scene in main_scene.get('scenes', [])
         ]
+        # print(f"all_sub_scenes: {all_sub_scenes}")
+        # import sys;sys.exit(0)
         
+        # 使用 tqdm 创建一个进度条，用于可视化素材查找过程
         sub_scenes_iterable = tqdm(all_sub_scenes, desc="Finding Assets", unit="sub-scene")
+        # 从配置中获取在线搜索的次数，默认为 10
         online_search_count = config.get('asset_search', {}).get('online_search_count', 10)
 
+        # 遍历所有子场景
         for i, sub_scene in enumerate(sub_scenes_iterable):
+            # 更新进度条的描述，显示当前处理进度
             sub_scenes_iterable.set_description(f"Finding Asset {i+1}/{len(all_sub_scenes)}")
             
+            # 获取子场景的搜索关键词
             keywords = sub_scene.get('keys', [])
+            # 如果关键词列表为空，则记录错误并终止函数
             if not keywords:
                 log.error(f"Sub-scene {i+1} is missing keywords. Aborting.")
                 return main_scenes, False
 
+            # 检查子场景是否已经有关联的素材路径，并且该文件存在
             if sub_scene.get('asset_path') and os.path.exists(sub_scene.get('asset_path')):
+                # 如果存在缓存的素材，则记录调试信息并跳过当前循环
                 log.debug(f"Found cached asset for sub-scene {i+1}")
                 continue
 
+            # 如果没有缓存素材，则调用素材管理器的 find_assets_for_scene 方法为当前子场景查找素材
             found_video_info_list = asset_manager.find_assets_for_scene(sub_scene, online_search_count)
-            
+
             if not found_video_info_list:
                 # AssetManager 已经记录了详细的错误日志，这里直接返回失败
                 return main_scenes, False
