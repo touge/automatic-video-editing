@@ -9,12 +9,12 @@ from starlette.concurrency import run_in_threadpool
 from src.config_loader import config
 from src.core.subtitles_processor import SubtitlesProcessor
 from src.api.security import verify_token
-from src.api.routers.yt.shared_data import tasks # 导入共享的 tasks 字典
+from src.api.routers.yt.shared_data import tasks, save_task_status # 导入共享的 tasks 字典和 save_task_status
 
 router = APIRouter()
 
 class ProcessVideoRequest(BaseModel):
-    video_id: str = "" # 仅保留 video_id
+    video_id: str # 仅保留 video_id
 
 async def _process_video_task(task_id: str, video_id: str):
     """
@@ -22,6 +22,7 @@ async def _process_video_task(task_id: str, video_id: str):
     """
     tasks[task_id]["status"] = "RUNNING"
     tasks[task_id]["progress"] = 0.0
+    save_task_status(task_id) # 保存初始状态
     
     # 从 config.yaml 获取缓存目录和 Whisper 模型路径
     base_task_folder = config.get('paths.task_folder', 'tasks')
@@ -91,15 +92,17 @@ async def _process_video_task(task_id: str, video_id: str):
             "video_id": processor.video_id,
             "srt_path": srt_path,
             "full_text": full_text,
-            "segments": formatted_segments
+            # "segments": formatted_segments
         }
         tasks[task_id]["status"] = "COMPLETED"
         tasks[task_id]["progress"] = 1.0
+        save_task_status(task_id) # 保存完成状态
 
     except Exception as e:
         tasks[task_id]["status"] = "FAILED"
         tasks[task_id]["error"] = str(e)
         tasks[task_id]["progress"] = 1.0
+        save_task_status(task_id) # 保存失败状态
     finally:
         # 清理音频文件，保留字幕文件
         if processor.audio_path and Path(processor.audio_path).exists():
@@ -110,7 +113,11 @@ async def _process_video_task(task_id: str, video_id: str):
                 print(f"Error cleaning up audio file {processor.audio_path}: {e}")
 
 
-@router.post("/process_video", response_model=ProcessVideoRequest, dependencies=[Depends(verify_token)])
+from src.api.routers.yt.status import TaskStatusResponse # 导入 TaskStatusResponse
+
+# ... (其他代码不变)
+
+@router.post("/process_video", response_model=TaskStatusResponse, dependencies=[Depends(verify_token)]) # 修正 response_model
 async def process_video(request: ProcessVideoRequest, background_tasks: BackgroundTasks):
     """
     提交一个YouTube视频ID，启动异步下载和转录任务。
@@ -121,7 +128,7 @@ async def process_video(request: ProcessVideoRequest, background_tasks: Backgrou
     # 检查任务是否已存在
     if task_id in tasks:
         # 如果任务已存在，直接返回其当前状态
-        return tasks[task_id] # 返回 TaskStatusResponse 实例
+        return TaskStatusResponse(**tasks[task_id]) # 返回 TaskStatusResponse 实例
 
     tasks[task_id] = {
         "task_id": task_id,
@@ -137,4 +144,4 @@ async def process_video(request: ProcessVideoRequest, background_tasks: Backgrou
         request.video_id
     )
     
-    return tasks[task_id] # 返回 TaskStatusResponse 实例
+    return TaskStatusResponse(task_id=task_id, status="PENDING", progress=0.0) # 返回 TaskStatusResponse 实例

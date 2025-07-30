@@ -43,8 +43,8 @@ class AiSearchProvider(BaseVideoProvider):
         payload = {
             "positive": query,
             "top_n": count,
-            "positive_threshold": 25,
-            "negative_threshold": 25,
+            "positive_threshold": 28,
+            "negative_threshold": 15,
             "min_duration": min_duration
         }
         
