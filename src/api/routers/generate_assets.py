@@ -17,6 +17,10 @@ from starlette.concurrency import run_in_threadpool
 from src.logic.assets_generator import AssetsGenerator
 from src.core.scene_validator import SceneValidator
 
+#✅ 新增：导入控制器
+from src.core.service_controller import ServiceController
+service_name = "LexiVisionAI"
+
 router = APIRouter(
     prefix="/tasks",
     tags=["Scenes & Assets - Scenes and Assets"],
@@ -27,6 +31,23 @@ async def _prepare_assets_task(task_id: str):
     """Background task: Find, download, and validate video assets for all scenes."""
     task_manager = TaskManager(task_id)
     step_name = "asset_generation"
+
+    #######################性能改进，使用ServiceController动态控制第三方服务##################
+    service_controller = ServiceController()  # ✅ 新增：初始化服务控制器
+    # ✅ 新增：安全启动服务，阻塞确认关键字
+    try:
+        # ✅ 新增：使用更可靠的关键字 "Application startup complete."
+        service_controller.safe_start(service_name, keyword="Application startup complete.", timeout=60)
+    except RuntimeError as e:
+        log.error(str(e))
+        task_manager.update_task_status(
+            TaskManager.STATUS_FAILED,
+            step=step_name,
+            details={"message": str(e)}
+        )
+        return  # ✅ 中止任务，防止继续执行
+    #######################性能改进，使用ServiceController动态控制第三方服务##################
+
     try:
         task_manager.update_task_status(
             TaskManager.STATUS_RUNNING,
@@ -58,6 +79,10 @@ async def _prepare_assets_task(task_id: str):
             step=step_name,
             details={"message": error_message}
         )
+    finally:
+        # ✅ 服务关闭
+        service_controller.stop(service_name)
+        log.info(f"{service_name} service has been stopped.")
 
 
 @router.post("/{task_id}/assets", summary="Prepare all video assets (Async)")

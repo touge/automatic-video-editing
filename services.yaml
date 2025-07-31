@@ -1,0 +1,35 @@
+Gemini:
+  name: "[gemini:10001]"
+  type: ps1
+  path: "D:/AIGC/gemini-balance/run.ps1"
+  port: 10001
+
+Ollama:
+  name: "[Ollama:11434]"
+  type: cmd
+  command: "ollama serve"
+  port: 11434
+
+ComfyUI:
+  name: "[ComfyUI:8001]"
+  type: ps1
+  path: "D:/AIGC/ComfyUI/developer-20250625/run.ps1"
+  port: 8001
+
+CosyVoice2:
+  name: "[CosyVoice2:8002]"
+  type: ps1
+  path: "D:/AIGC/CosyVoice/run.ps1"
+  port: 8002
+
+HeygemAPI:
+  name: "[HeygemAPI:8003]"
+  type: ps1
+  path: "D:/AIGC/Duix.Heygem/Duix.Heygem.Proxy/run.ps1"
+  port: 8003
+
+LexiVisionAI:
+  name: "[LexiVisionAI:8004]"
+  type: ps1
+  path: "D:/AIGC/LexiVision-AI/run.ps1"
+  port: 8004

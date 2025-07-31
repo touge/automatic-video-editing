@@ -14,6 +14,10 @@ from src.api.security import verify_token
 from src.logger import log
 from src.utils import get_relative_url
 
+#✅ 新增：导入控制器
+from src.core.service_controller import ServiceController
+service_name = "CosyVoice2"
+
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
@@ -33,6 +37,23 @@ class AudioGenerationRequest(BaseModel):
 async def _generate_audio_task(task_id: str, request: Request):
     """Background task: Generate audio and initial scenes from the script."""
     task_manager = TaskManager(task_id)
+
+    #######################性能改进，使用ServiceController动态控制第三方服务##################    
+    service_controller = ServiceController()  # ✅ 新增：初始化服务控制器
+    # ✅ 新增：安全启动服务，阻塞确认关键字
+    try:
+        # ✅ 新增：使用更可靠的关键字 "Application startup complete."
+        service_controller.safe_start(service_name, keyword="Application startup complete.", timeout=60)
+    except RuntimeError as e:
+        log.error(str(e))
+        task_manager.update_task_status(
+            TaskManager.STATUS_FAILED,
+            step="audio_generation",
+            details={"message": str(e)}
+        )
+        return  # ✅ 中止任务，防止继续执行
+    #######################性能改进，使用ServiceController动态控制第三方服务##################
+
     try:
         task_manager.update_task_status(
             TaskManager.STATUS_RUNNING,
@@ -63,6 +84,7 @@ async def _generate_audio_task(task_id: str, request: Request):
             }
         )
         log.success(f"Audio generation task '{task_id}' completed successfully.")
+
     except Exception as e:
         error_message = f"Audio generation failed: {str(e)}"
         log.error(f"Background audio generation task '{task_id}' failed: {error_message}", exc_info=True)
@@ -71,6 +93,11 @@ async def _generate_audio_task(task_id: str, request: Request):
             step="audio_generation",
             details={"message": error_message}
         )
+    finally:
+        # ✅ 服务关闭
+        service_controller.stop(service_name)
+        log.info(f"{service_name} service has been stopped.")
+
 
 @router.post("/{task_id}/audio", summary="Generate audio and scenes from script (Async)")
 async def generate_audio(
