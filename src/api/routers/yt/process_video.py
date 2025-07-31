@@ -1,28 +1,34 @@
 import os
+import re
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from src.config_loader import config
 from src.core.subtitles_processor import SubtitlesProcessor
+from src.utils import get_relative_url
 from src.api.security import verify_token
+from .utils import parse_srt_file, get_youtube_url, get_video_id
+from src.api.routers.yt.simple_task_manager import SimpleTaskManager
 from src.api.routers.yt.shared_data import tasks, save_task_status # 导入共享的 tasks 字典和 save_task_status
 
 router = APIRouter()
 
 class ProcessVideoRequest(BaseModel):
-    video_id: str # 仅保留 video_id
+    url: str # 接受 video_id 或完整的 URL
 
-async def _process_video_task(task_id: str, video_id: str):
+async def _process_video_task(task_id: str, video_url: str, request: Request):
     """
     后台任务，执行视频下载和转录。
     """
     tasks[task_id]["status"] = "RUNNING"
     tasks[task_id]["progress"] = 0.0
     save_task_status(task_id) # 保存初始状态
+    
+    task_manager = SimpleTaskManager(task_id)
     
     # 从 config.yaml 获取缓存目录和 Whisper 模型路径
     base_task_folder = config.get('paths.task_folder', 'tasks')
@@ -44,43 +50,68 @@ async def _process_video_task(task_id: str, video_id: str):
     task_output_dir = Path(f"{base_task_folder}/{task_id}")
     os.makedirs(task_output_dir, exist_ok=True)
     
-    # 根据 video_id 构建完整的 YouTube URL
-    youtube_url = f"https://www.youtube.com/watch?v={video_id}"
+    # 根据 video_url 构建完整的 YouTube URL
+    youtube_url = get_youtube_url(video_url)
     processor = SubtitlesProcessor(url=youtube_url, proxy=proxy_to_use)
     
     try:
-        # 1. 下载音频
-        tasks[task_id]["progress"] = 0.1
-        await run_in_threadpool(processor.download_audio, str(task_output_dir))
+        final_srt_path = task_manager.get_file_path('final_srt')
         
-        if not processor.audio_path or not Path(processor.audio_path).exists():
-            raise Exception("Audio download failed or file not found.")
+        # 核心逻辑：确保 final_srt_path 文件最终存在
+        if not os.path.exists(final_srt_path):
+            tasks[task_id]["progress"] = 0.1
+            target_filename_base = Path(final_srt_path).stem
+            
+            # 1. 尝试从平台下载字幕
+            downloaded_path = await run_in_threadpool(
+                processor.download_platform_subtitles,
+                output_dir=str(task_output_dir),
+                target_filename_base=target_filename_base
+            )
 
-        # 2. 转录音频
-        tasks[task_id]["progress"] = 0.5
-        segments = await run_in_threadpool(processor.transcribe_with_whisper, actual_model_dir)
+            # 2. 如果平台字幕下载失败，则进行音频转录
+            if not downloaded_path:
+                print("ℹ️ 平台字幕下载失败，开始进行音频转录流程。")
+                tasks[task_id]["progress"] = 0.2
+                audio_filename_base = processor.video_id
+                await run_in_threadpool(processor.download_audio, str(task_output_dir), audio_filename_base)
+                
+                if not processor.audio_path or not Path(processor.audio_path).exists():
+                    raise Exception("音频下载失败或文件未找到。")
+
+                tasks[task_id]["progress"] = 0.5
+                segments_from_whisper = await run_in_threadpool(processor.transcribe_with_whisper, actual_model_dir)
+                
+                if not segments_from_whisper:
+                    raise Exception("音频转录失败或未返回任何片段。")
+
+                tasks[task_id]["progress"] = 0.8
+                processor.export_srt(segments_from_whisper, str(task_output_dir), target_filename_base)
         
+        # --- 后续处理流程 ---
+        # 到这里，final_srt_path 必须存在
+        if not os.path.exists(final_srt_path):
+            raise Exception(f"SRT 文件生成失败，路径不存在: {final_srt_path}")
+
+        print(f"✅ SRT 文件准备就绪: {final_srt_path}。开始后续处理。")
+        
+        # 解析 SRT 文件获取 segments
+        segments = parse_srt_file(final_srt_path)
         if not segments:
-            raise Exception("Transcription failed or no segments returned.")
+            raise Exception(f"解析 SRT 文件失败或文件为空: {final_srt_path}")
 
-        # 3. 导出 SRT 和纯文本
-        tasks[task_id]["progress"] = 0.8
-        srt_filename = f"{processor.video_id}_subtitles"
-        srt_path = processor.export_srt(segments, str(task_output_dir), srt_filename)
+        # 从 segments 中提取纯文本
+        full_text = "\n".join([seg.text for seg in segments])
+
+        # 写入 manuscript.txt 文件
+        manuscript_path = task_manager.get_file_path('manuscript')
+        with open(manuscript_path, "w", encoding="utf-8") as f:
+            f.write(full_text)
         
-        # 从 SRT 文件中提取纯文本
-        manuscript_lines = []
-        try:
-            with open(srt_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line.isdigit() and "-->" not in line and line:
-                        manuscript_lines.append(line)
-        except Exception as e:
-            print(f"Error reading SRT file for text extraction: {e}")
-            # 即使提取失败，也继续返回已有的数据
-        
-        full_text = "\n".join(manuscript_lines)
+        # 生成 manuscript.txt 的下载链接
+        manuscript_url = get_relative_url(manuscript_path, request)
+        final_srt_url = get_relative_url(final_srt_path, request)
+        tasks[task_id]["progress"] = 1.0
 
         # 格式化 segments 以便返回
         formatted_segments = [
@@ -90,40 +121,43 @@ async def _process_video_task(task_id: str, video_id: str):
 
         tasks[task_id]["result"] = {
             "video_id": processor.video_id,
-            "srt_path": srt_path,
-            "full_text": full_text,
+            "srt_url": final_srt_url,
+            # "full_text": full_text,
+            "manuscript_url": manuscript_url,
             # "segments": formatted_segments
         }
         tasks[task_id]["status"] = "COMPLETED"
         tasks[task_id]["progress"] = 1.0
         save_task_status(task_id) # 保存完成状态
 
+        print(f"✅Get subtitles/text from youtube by an ID/url Task completed")
+
     except Exception as e:
         tasks[task_id]["status"] = "FAILED"
         tasks[task_id]["error"] = str(e)
         tasks[task_id]["progress"] = 1.0
         save_task_status(task_id) # 保存失败状态
-    finally:
-        # 清理音频文件，保留字幕文件
-        if processor.audio_path and Path(processor.audio_path).exists():
-            try:
-                os.remove(processor.audio_path)
-                print(f"Cleaned up audio file: {processor.audio_path}")
-            except Exception as e:
-                print(f"Error cleaning up audio file {processor.audio_path}: {e}")
-
+    # finally:
+    #     # 清理音频文件，保留字幕文件
+    #     if processor.audio_path and Path(processor.audio_path).exists():
+    #         try:
+    #             os.remove(processor.audio_path)
+    #             print(f"Cleaned up audio file: {processor.audio_path}")
+    #         except Exception as e:
+    #             print(f"Error cleaning up audio file {processor.audio_path}: {e}")
 
 from src.api.routers.yt.status import TaskStatusResponse # 导入 TaskStatusResponse
 
-# ... (其他代码不变)
-
-@router.post("/process_video", response_model=TaskStatusResponse, dependencies=[Depends(verify_token)]) # 修正 response_model
-async def process_video(request: ProcessVideoRequest, background_tasks: BackgroundTasks):
+@router.post("/process_video", response_model=TaskStatusResponse, dependencies=[Depends(verify_token)])
+async def process_video(http_request: Request, request: ProcessVideoRequest, background_tasks: BackgroundTasks):
     """
-    提交一个YouTube视频ID，启动异步下载和转录任务。
+    提交一个YouTube视频ID或URL，启动异步下载和转录任务。
     """
+    # 从输入中提取 video_id
+    video_id = get_video_id(request.url)
+    
     # 任务ID使用 "yt-" 前缀和 video_id
-    task_id = f"yt-{request.video_id}"
+    task_id = f"yt-{video_id}"
 
     # 检查任务是否已存在
     if task_id in tasks:
@@ -132,6 +166,7 @@ async def process_video(request: ProcessVideoRequest, background_tasks: Backgrou
 
     tasks[task_id] = {
         "task_id": task_id,
+        "task_name": "process_video",
         "status": "PENDING",
         "progress": 0.0,
         "result": None,
@@ -141,7 +176,8 @@ async def process_video(request: ProcessVideoRequest, background_tasks: Backgrou
     background_tasks.add_task(
         _process_video_task, 
         task_id, 
-        request.video_id
+        request.url, # 传递原始的 url
+        http_request
     )
     
     return TaskStatusResponse(task_id=task_id, status="PENDING", progress=0.0) # 返回 TaskStatusResponse 实例

@@ -1,11 +1,15 @@
-import sys # 导入 sys
+import sys
 import subprocess
 import os
 from pathlib import Path
+from typing import Optional
 from tqdm import tqdm
 import re
 import torch
-from faster_whisper import WhisperModel # 确保 Faster Whisper 已安装
+from faster_whisper import WhisperModel
+import yt_dlp
+import fnmatch
+import json
 
 class SubtitlesProcessor:
     def __init__(self, url: str, proxy: str = None):
@@ -19,6 +23,123 @@ class SubtitlesProcessor:
     def _proxy_arg(self) -> list[str]:
         return ["--proxy", self.proxy] if self.proxy else []
 
+    def download_platform_subtitles(self, output_dir: str, target_filename_base: str) -> Optional[str]:
+        """
+        尝试从视频平台下载字幕，按照优先级：简体中文、繁体中文、英文。
+        优先下载 SRT 格式，如果只有 VTT 则下载 VTT 并转换为 SRT。
+        """
+        print("🌍 尝试从视频平台下载字幕...")
+        
+        preferred_langs = ['zh-Hans', 'zh-Hant', 'en']
+        target_format = 'srt'
+        fallback_format = 'vtt'
+
+        os.makedirs(output_dir, exist_ok=True)
+
+        try:
+            ydl_info_opts = {
+                'skip_download': True,
+                'quiet': True,
+                'proxy': self.proxy if self.proxy else None,
+            }
+            with yt_dlp.YoutubeDL(ydl_info_opts) as ydl_info:
+                info_dict = ydl_info.extract_info(self.url, download=False)
+
+            available_subtitles = info_dict.get('subtitles', {})
+
+            if not available_subtitles:
+                print("  - 平台没有可用字幕。")
+                return None
+
+            sub_lang_to_download = None
+            needs_conversion = False
+
+            for lang in preferred_langs:
+                if lang in available_subtitles:
+                    sub_lang_to_download = lang
+                    if not any(s['ext'] == target_format for s in available_subtitles[lang]):
+                        if any(s['ext'] == fallback_format for s in available_subtitles[lang]):
+                            needs_conversion = True
+                    break
+            
+            if not sub_lang_to_download:
+                print(f"  - 未能找到符合优先级的字幕 ({preferred_langs})。")
+                return None
+
+            sub_format_to_request = fallback_format if needs_conversion else target_format
+            
+            yt_dlp_command = [
+                sys.executable, "-m", "yt_dlp",
+                "--skip-download", "--write-subs",
+                "--sub-langs", sub_lang_to_download,
+                "--sub-format", sub_format_to_request,
+                "-o", os.path.join(output_dir, f"{self.video_id}.%(ext)s"),
+                self.url
+            ]
+            if self.proxy:
+                yt_dlp_command.extend(["--proxy", self.proxy])
+
+            subprocess.run(yt_dlp_command, check=True, capture_output=True, text=True, errors='replace')
+            
+            found_subtitle_path = None
+            
+            # 查找下载的文件
+            downloaded_sub_ext = fallback_format if needs_conversion else target_format
+            search_pattern = f"{self.video_id}*.{sub_lang_to_download}.{downloaded_sub_ext}"
+            
+            for filename in fnmatch.filter(os.listdir(output_dir), search_pattern):
+                found_path = Path(os.path.join(output_dir, filename))
+                if found_path.exists() and found_path.stat().st_size > 0:
+                    if needs_conversion:
+                        srt_path = found_path.with_suffix('.srt')
+                        try:
+                            self._convert_vtt_to_srt(str(found_path), str(srt_path))
+                            found_subtitle_path = srt_path
+                        except Exception as e:
+                            print(f"  ❌ VTT转换SRT失败: {e}")
+                            continue
+                    else:
+                        found_subtitle_path = found_path
+                    break
+
+            if found_subtitle_path:
+                final_srt_path = Path(output_dir) / f"{target_filename_base}.srt"
+                if found_subtitle_path.resolve() != final_srt_path.resolve():
+                     # 如果目标文件已存在，先删除
+                    if os.path.exists(final_srt_path):
+                        os.remove(final_srt_path)
+                    os.rename(found_subtitle_path, final_srt_path)
+                print(f"  ✅ 成功下载并保存字幕: {final_srt_path}")
+                return str(final_srt_path)
+            else:
+                print(f"  ⚠️ yt-dlp 报告成功，但未能找到匹配的字幕文件。")
+                return None
+
+        except subprocess.CalledProcessError as e:
+            print(f"❌ yt-dlp 命令行执行失败: {e.stderr}")
+        except yt_dlp.utils.DownloadError as e:
+            print(f"❌ yt-dlp 在获取信息时发生错误: {e}")
+        except Exception as e:
+            print(f"❌ 下载平台字幕时发生未知错误: {e}")
+        
+        return None
+
+    def _convert_vtt_to_srt(self, vtt_path: str, srt_path: str):
+        """
+        使用 ffmpeg 将 VTT 字幕文件转换为 SRT 格式。
+        """
+        try:
+            ffmpeg_command = ['ffmpeg', '-y', '-i', vtt_path, srt_path]
+            subprocess.run(ffmpeg_command, check=True, capture_output=True, text=True)
+            print(f"  ✅ VTT手动转换为SRT成功: {srt_path}")
+            os.remove(vtt_path)
+        except subprocess.CalledProcessError as e:
+            print(f"  ❌ FFmpeg手动转换VTT失败。stdout: {e.stdout}, stderr: {e.stderr}")
+            raise
+        except Exception as e:
+            print(f"  ❌ 手动转换VTT时发生未知错误: {e}")
+            raise
+
     def _extract_video_id(self, url: str) -> str:
         # 简化视频 ID 提取，针对 YouTube URL
         match = re.search(r'(?:v=|\/)([a-zA-Z0-9_-]{11})(?:&|\?)?.*', url)
@@ -26,50 +147,43 @@ class SubtitlesProcessor:
             return match.group(1)
         return "unknown_video" # 无法提取 ID 时的备用
 
-    def download_audio(self, output_dir: str):
+    def download_audio(self, output_dir: str, filename_base: str):
         """
         下载视频音频。
-        优化：检查音频文件是否已存在，如果存在则跳过下载。
         """
         print("🎵 Downloading audio...")
         os.makedirs(output_dir, exist_ok=True)
         
-        # 构建可能的音频文件路径，使用 %(title)s 和 %(ext)s
-        # yt-dlp 可能会下载为 .webm, .m4a, .opus, .mp3 等
-        # 我们需要先尝试查找已存在的音频文件
-        
-        # 查找已存在的音频文件
-        existing_audio_files = []
+        # 检查音频文件是否已存在
+        # 注意：这里我们假设一个任务只处理一个音频，所以不严格检查后缀
         for f_name in os.listdir(output_dir):
-            # 查找文件名包含 video_id 且是常见音频格式的文件
-            if self.video_id in f_name and (f_name.endswith(".m4a") or f_name.endswith(".webm") or f_name.endswith(".opus") or f_name.endswith(".mp3")):
-                existing_audio_files.append(os.path.join(output_dir, f_name))
-        
-        if existing_audio_files:
-            self.audio_path = existing_audio_files[0] # 取第一个找到的
-            print(f"✅ Audio file already exists: {self.audio_path}. Skipping download.")
-            return
+            if f_name.startswith(filename_base) and any(f_name.endswith(ext) for ext in ['.m4a', '.webm', '.opus', '.mp3']):
+                self.audio_path = os.path.join(output_dir, f_name)
+                print(f"✅ Audio file already exists: {self.audio_path}. Skipping download.")
+                return
 
         # 如果音频文件不存在，则执行下载
-        audio_output_path = os.path.join(output_dir, f"%(title)s[{self.video_id}].%(ext)s")
+        audio_output_path = os.path.join(output_dir, f"{filename_base}.%(ext)s")
         command = [
-            sys.executable, "-m", "yt_dlp", "-x", "-f", "bestaudio", self.url,
+            sys.executable, "-m", "yt_dlp",
+            "-x", "-f", "bestaudio", self.url,
             "-o", audio_output_path
-        ] + self._proxy_arg()
+        ]
+        if self.proxy:
+            command.extend(["--proxy", self.proxy])
         
         try:
-            print("尝试下载音频，使用 python -m yt_dlp -x -f bestaudio 模式...")
-            subprocess.run(command, check=True) # 移除 shell=True，因为现在直接调用 python
+            print("尝试下载音频，使用 yt-dlp -x -f bestaudio 模式...")
+            subprocess.run(command, check=True)
             
             # 下载完成后，再次查找实际下载的音频文件路径
-            # 因为 yt-dlp 会根据 %(title)s 生成具体文件名
             newly_downloaded_audio_files = []
             for f_name in os.listdir(output_dir):
-                if self.video_id in f_name and (f_name.endswith(".m4a") or f_name.endswith(".webm") or f_name.endswith(".opus") or f_name.endswith(".mp3")):
+                if f_name.startswith(filename_base) and any(f_name.endswith(ext) for ext in ['.m4a', '.webm', '.opus', '.mp3']):
                     newly_downloaded_audio_files.append(os.path.join(output_dir, f_name))
             
             if newly_downloaded_audio_files:
-                self.audio_path = newly_downloaded_audio_files[0] 
+                self.audio_path = newly_downloaded_audio_files[0]
                 print(f"✅ Audio downloaded to: {self.audio_path}")
             else:
                 print(f"⚠️ 无法在 '{output_dir}' 目录中找到下载的音频文件，但 yt-dlp 命令成功完成。")
