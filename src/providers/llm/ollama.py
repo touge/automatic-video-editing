@@ -38,7 +38,7 @@ class OllamaProvider(BaseLlmProvider):
             # Initialization should be lightweight, no proxy manipulation here
             self.client = ollama.Client(
                 host=self.config.get('host'),
-                timeout=self.config.get('timeout', 60)
+                timeout=self.config.get('timeout', 600)
             )
             self.default_model = self.model
         except Exception as e:

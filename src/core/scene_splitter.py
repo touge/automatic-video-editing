@@ -18,10 +18,10 @@ class SceneSplitter:
         
         log.info("Scene splitter initialized.")
 
-        prompts_config = self.config.get('prompts', {})
-        prompt_path_or_content = prompts_config.get('scene_splitter')
+        aoto_corp_prompts_config = self.config.get('prompts.auto_corp', {})
+        prompt_path_or_content = aoto_corp_prompts_config.get('scene_splitter')
         if not prompt_path_or_content:
-            raise ValueError("Scene splitter prompt 'prompts.scene_splitter' not found in config.yaml")
+            raise ValueError("Scene splitter prompt 'prompts.auto_corp.scene_splitter' not found in config.yaml")
 
         # 检查值是否是一个存在的文件路径
         if isinstance(prompt_path_or_content, str) and os.path.exists(prompt_path_or_content):

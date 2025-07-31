@@ -81,13 +81,13 @@ class KeywordGenerator:
 
     def _load_prompt_template(self, style: Optional[str]) -> str:
         """根据指定的风格加载提示词模板，可以是路径也可以是内容。"""
-        prompt_config = self.config.get('prompts', {}).get('scene_keywords', {})
-        if not prompt_config:
-            raise ValueError("Prompt config 'prompts.scene_keywords' not found in config.yaml")
+        aoto_corp_prompt_config = self.config.get('prompts.auto_corp', {}).get('scene_keywords', {})
+        if not aoto_corp_prompt_config:
+            raise ValueError("Prompt config 'prompts.auto_corp.scene_keywords' not found in config.yaml")
 
-        style_key = style if style and style in prompt_config else 'default'
+        style_key = style if style and style in aoto_corp_prompt_config else 'default'
         
-        prompt_path_or_content = prompt_config.get(style_key)
+        prompt_path_or_content = aoto_corp_prompt_config.get(style_key)
         if not prompt_path_or_content:
             raise ValueError(f"Prompt for style '{style_key}' not found in config.")
 
