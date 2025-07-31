@@ -1,13 +1,4 @@
-import os
-import shutil
-import requests
-from tqdm import tqdm
-from typing import List, Dict
-from pydub import AudioSegment
-
 from src.logger import log
-from src.tts import tts
-from src.config_loader import config
 from src.core.task_manager import TaskManager
 from src.core.assets_process import AssetsProcess
 

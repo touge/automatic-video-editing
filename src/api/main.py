@@ -37,11 +37,13 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Explicitly initialize LlmManager to ensure its initialization log is printed early
-from src.providers.llm import LlmManager
-llm_manager_instance = LlmManager(config)
-if not llm_manager_instance.get_provider():
-    log.error("LLM Manager failed to initialize. Please check config.yaml and LLM service status.")
+# # Explicitly initialize LlmManager to ensure its initialization log is printed early
+# # 备注：在采用“按需启动”服务模式后，此处的预加载检查已不再需要，并与优化目标冲突。
+# # 因此，我们将其注释掉，以避免在应用启动时就强制加载LLM服务。
+# from src.providers.llm import LlmManager
+# llm_manager_instance = LlmManager(config)
+# if not llm_manager_instance.get_provider():
+#     log.error("LLM Manager failed to initialize. Please check config.yaml and LLM service status.")
 
 # Mount the 'tasks' directory under a specific static path to avoid conflicts with API routes
 app.mount("/static/tasks", StaticFiles(directory="tasks"), name="static_tasks")

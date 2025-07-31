@@ -26,7 +26,8 @@ from typing import List, Dict, Optional
 from pydub import AudioSegment
 
 from src.logger import log
-from src.tts import tts
+# ✅ 修改：导入 get_tts_instance 工厂函数，而不是全局实例
+from src.tts import get_tts_instance
 from src.config_loader import config
 from src.core.task_manager import TaskManager
 
@@ -149,8 +150,9 @@ class AudioGenerator:
                 continue
             
             try:
+                # ✅ 修改：通过 get_tts_instance() 获取实例并调用
                 # Pass the combined kwargs to the synthesis function
-                response = tts.synthesize(segment_text, **tts_kwargs)
+                response = get_tts_instance().synthesize(segment_text, **tts_kwargs)
                 
                 # 检查是返回了URL还是本地路径
                 if 'url' in response and response['url']:

@@ -34,9 +34,10 @@ class AudioGenerationRequest(BaseModel):
     """
     pass
 
-async def _generate_audio_task(task_id: str, request: Request):
+async def _generate_audio_task(task_id: str, step_name: str ,request: Request):
     """Background task: Generate audio and initial scenes from the script."""
     task_manager = TaskManager(task_id)
+    # step_name = "audio_generation"
 
     #######################性能改进，使用ServiceController动态控制第三方服务##################    
     service_controller = ServiceController()  # ✅ 新增：初始化服务控制器
@@ -48,7 +49,7 @@ async def _generate_audio_task(task_id: str, request: Request):
         log.error(str(e))
         task_manager.update_task_status(
             TaskManager.STATUS_FAILED,
-            step="audio_generation",
+            step=step_name,
             details={"message": str(e)}
         )
         return  # ✅ 中止任务，防止继续执行
@@ -57,7 +58,7 @@ async def _generate_audio_task(task_id: str, request: Request):
     try:
         task_manager.update_task_status(
             TaskManager.STATUS_RUNNING,
-            step="audio_generation",
+            step=step_name,
             details={"message": "Audio generation task has started."}
         )
         
@@ -76,7 +77,7 @@ async def _generate_audio_task(task_id: str, request: Request):
         
         task_manager.update_task_status(
             TaskManager.STATUS_SUCCESS,
-            step="audio_generation",
+            step=step_name,
             details={
                 "message": "Audio generation and initial scene processing completed successfully.",
                 "audio_url": audio_url,
@@ -90,7 +91,7 @@ async def _generate_audio_task(task_id: str, request: Request):
         log.error(f"Background audio generation task '{task_id}' failed: {error_message}", exc_info=True)
         task_manager.update_task_status(
             TaskManager.STATUS_FAILED,
-            step="audio_generation",
+            step=step_name,
             details={"message": error_message}
         )
     finally:
@@ -108,16 +109,18 @@ async def generate_audio(
 ):
     try:
         task_manager = TaskManager(task_id)
+        step_name = "audio_generation"
+
         script_path = task_manager.get_file_path('original_doc')
         if not os.path.exists(script_path):
             raise HTTPException(status_code=404, detail=f"Script for task_id '{task_id}' not found. Please create the task first.")
 
-        background_tasks.add_task(_generate_audio_task, task_id, request)
+        background_tasks.add_task(_generate_audio_task, task_id=task_id, step_name=step_name, request=request)
         
         message = "Audio generation task submitted successfully. Awaiting processing."
         task_manager.update_task_status(
             TaskManager.STATUS_PENDING,
-            step="audio_generation",
+            step=step_name,
             details={"message": message}
         )
         
