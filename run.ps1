@@ -2,6 +2,12 @@ param(
     [int] $Port = 9001
 )
 
+# 🖼️ 设置窗口样式（标题 + 颜色）
+$Host.UI.RawUI.WindowTitle = "auto-crop:$Port"
+# $Host.UI.RawUI.ForegroundColor = "Red"
+# $Host.UI.RawUI.BackgroundColor = "Green"
+# Clear-Host
+
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 Set-Location $scriptDir

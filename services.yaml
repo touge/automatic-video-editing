@@ -22,6 +22,13 @@ CosyVoice2:
   path: "D:/AIGC/CosyVoice/run.ps1"
   port: 8002
 
+IndexTTS:
+  name: "[IndexTTS:8002]"
+  type: ps1
+  path: "D:/AIGC/index-tts-service/run.ps1" # 请您后续修改为实际的启动脚本路径
+  port: 8002
+
+
 HeygemAPI:
   name: "[HeygemAPI:8003]"
   type: ps1

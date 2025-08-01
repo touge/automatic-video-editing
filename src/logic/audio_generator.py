@@ -32,15 +32,18 @@ from src.config_loader import config
 from src.core.task_manager import TaskManager
 
 class AudioGenerator:
-    def __init__(self, task_id: str, doc_file: str, speaker: Optional[str] = None):
+    def __init__(self, task_id: str, doc_file: str, speaker: str):
         if not task_id or not doc_file:
             raise ValueError("task_id and doc_file must be provided.")
         if not os.path.exists(doc_file):
             raise FileNotFoundError(f"Document file not found at '{doc_file}'")
+        if not speaker:
+            raise ValueError("A non-empty speaker must be provided.")
 
         self.task_manager = TaskManager(task_id)
         self.doc_file = doc_file
-        
+        self.speaker = speaker # Store the speaker name passed from the API
+
         # 从配置加载参数
         self.tts_config = config.get('tts_providers', {})
         text_processing_config = config.get('text_processing', {})
@@ -48,37 +51,7 @@ class AudioGenerator:
         self.tts_max_chunk_length = self.tts_config.get('tts_max_chunk_length', 2000)
         self.scene_target_length = text_processing_config.get('scene_target_length', 300)
         
-        self.speaker = self._resolve_speaker(speaker)
-
         self.final_audio = self.task_manager.get_file_path('final_audio')
-
-    def _resolve_speaker(self, speaker: Optional[str]) -> str:
-        """根据 speaker 从配置中解析出实际的 speaker 值。"""
-        provider_name = self.tts_config.get('use')
-        if not provider_name:
-            raise ValueError("No TTS provider specified in config ('tts_providers.use').")
-            
-        provider_config = self.tts_config.get(provider_name)
-        if not provider_config:
-            raise ValueError(f"Configuration for TTS provider '{provider_name}' not found.")
-            
-        speakers = provider_config.get('speakers')
-        if not isinstance(speakers, dict) or not speakers:
-            raise ValueError(f"'speakers' dictionary not found or is empty for provider '{provider_name}'.")
-            
-        # 如果提供了 speaker 并且它存在于 speakers 字典中，则使用它
-        if speaker and speaker in speakers:
-            selected_speaker = speakers[speaker]
-            log.info(f"Using specified speaker '{speaker}': {selected_speaker}")
-            return selected_speaker
-        
-        # 否则，使用默认的 speaker
-        default_speaker = speakers.get('default')
-        if not default_speaker:
-            raise ValueError(f"'default' speaker not found in 'speakers' for provider '{provider_name}'.")
-        
-        log.info(f"Using default speaker: {default_speaker}")
-        return default_speaker
 
     def run(self):
         log.info(f"--- Starting Text-First Audio Preprocessing for Task ID: {self.task_manager.task_id} ---")
@@ -139,10 +112,28 @@ class AudioGenerator:
     def _synthesize_audio_segments(self, segments: List[str]):
         log.info("--- Step 2.2: Synthesizing audio for each segment ---")
         
-        tts_kwargs = {
-            'task_id': self.task_manager.task_id,
-            'speaker': self.speaker
-        }
+        tts_instance = get_tts_instance()
+        # Correctly access the provider through the manager
+        provider_name = tts_instance.manager.provider.name
+        provider_config = self.tts_config.get(provider_name, {})
+
+        tts_kwargs = {'task_id': self.task_manager.task_id}
+
+        # Since the speaker is now guaranteed by the API layer, we directly use it.
+        # The API layer is responsible for resolving the default value.
+        speaker_value = self.speaker
+
+        if provider_name == 'CosyVoice2':
+            tts_kwargs['speaker'] = speaker_value
+            log.info(f"Using CosyVoice2 speaker: {speaker_value}")
+        elif provider_name == 'IndexTTS':
+            tts_kwargs['speaker_id'] = speaker_value
+            tts_kwargs['volume'] = provider_config.get('volume', 0)
+            log.info(f"Using IndexTTS speaker_id: {speaker_value}, volume: {tts_kwargs['volume']}")
+        else:
+            # Generic fallback for other providers
+            tts_kwargs['speaker'] = speaker_value
+            log.info(f"Using {provider_name} speaker: {speaker_value}")
 
         for i, segment_text in enumerate(tqdm(segments, desc="Synthesizing Audio")):
             audio_segment_path = self.task_manager.get_file_path('audio_segment', index=i)
@@ -150,9 +141,8 @@ class AudioGenerator:
                 continue
             
             try:
-                # ✅ 修改：通过 get_tts_instance() 获取实例并调用
                 # Pass the combined kwargs to the synthesis function
-                response = get_tts_instance().synthesize(segment_text, **tts_kwargs)
+                response = tts_instance.synthesize(segment_text, **tts_kwargs)
                 
                 # 检查是返回了URL还是本地路径
                 if 'url' in response and response['url']:

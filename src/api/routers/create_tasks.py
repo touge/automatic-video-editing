@@ -9,6 +9,7 @@ from pathlib import Path
 from src.core.task_manager import TaskManager
 from src.api.security import verify_token
 from src.logger import log
+from src.config_loader import config
 
 # Add project root to the Python path to allow module imports
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
@@ -56,14 +57,29 @@ async def create_task(
             message = f"Existing task '{task_manager.task_id}' updated with new script."
         
         # Task creation/update is an atomic operation, so its status is SUCCESS upon completion.
+        # 确定 speaker 和 video_style, 如果未提供则使用默认值
+        final_speaker = speaker
+        if not final_speaker:
+            tts_config = config.get('tts_providers', {})
+            provider_name = tts_config.get('use')
+            provider_config = tts_config.get(provider_name, {})
+            speakers = provider_config.get('speakers', {})
+            final_speaker = speakers.get('default')
+            log.info(f"未提供speaker，使用提供商 '{provider_name}' 的默认值: '{final_speaker}'")
+
+        final_video_style = video_style
+        if not final_video_style:
+            # 如果未提供video_style，则将其设置为字符串 "default"
+            # 下游模块（如SceneGenerator）将负责使用这个key来从配置中查找实际的prompt文件路径
+            final_video_style = "default"
+            log.info(f"未提供video_style，使用默认键名: '{final_video_style}'")
+
         details = {
             "message": message,
-            "script_path": saved_path
+            "script_path": saved_path,
+            "speaker": final_speaker,
+            "video_style": final_video_style
         }
-        if speaker:
-            details["speaker"] = speaker
-        if video_style:
-            details["video_style"] = video_style
 
         task_manager.update_task_status(
             TaskManager.STATUS_SUCCESS,

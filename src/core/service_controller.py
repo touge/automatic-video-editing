@@ -87,6 +87,7 @@ class ServiceController:
                     output_buffer += line
                     if keyword in line:
                         print(f"[Ready] Service '{service_name}' is ready (keyword '{keyword}' found).")
+                        self.attach_log_stream(service_name)
                         return
             except (IOError, TypeError):
                 # 在非阻塞模式下，没有数据时可能会抛出异常，这是正常的
@@ -197,3 +198,23 @@ class ServiceController:
             if conn.laddr.port == port and conn.status == psutil.CONN_LISTEN:
                 return conn.pid
         return None
+
+    def attach_log_stream(self, service_name: str):
+        """
+        持续监听服务运行期输出并打印，适用于实时观察任务过程。
+        """
+        proc = self.processes.get(service_name)
+        if not proc:
+            raise ValueError(f"No running process for '{service_name}'")
+
+        def stream():
+            while True:
+                if proc.poll() is not None:
+                    print(f"[LogStream] Service '{service_name}' has exited.")
+                    break
+                line = proc.stdout.readline()
+                if line:
+                    print(f"[{service_name} Runtime]: {line.strip()}")
+
+        import threading
+        threading.Thread(target=stream, daemon=True).start()

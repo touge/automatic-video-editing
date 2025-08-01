@@ -2,13 +2,15 @@ import sys
 from .base import BaseTtsProvider
 from .cosyvoice import CosyVoiceTtsProvider
 from .siliconflow import SiliconflowTtsProvider
+from .indextts import IndexTtsProvider
 from src.logger import log
 from typing import Dict, Optional, List, Any, Callable
 
 # Map provider names to their classes
 _PROVIDER_CLASSES = {
-    'cosyvoice': CosyVoiceTtsProvider,
+    'CosyVoice2': CosyVoiceTtsProvider,
     'siliconflow': SiliconflowTtsProvider,
+    'IndexTTS': IndexTtsProvider,
 }
 
 class TtsManager:
