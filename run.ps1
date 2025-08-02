@@ -66,21 +66,21 @@ Write-Host "GPU Info: " -NoNewline -ForegroundColor Cyan
 
 
 # 🧹 清理8小时前的旧任务目录
-$tasksDir = Join-Path $scriptDir "tasks"
-if (Test-Path $tasksDir) {
-    $cutoffTime = (Get-Date).AddHours(-8)
-    Write-Host "Cleaning up tasks older than 8 hours from '$tasksDir'..." -ForegroundColor Yellow
-    $oldTasks = Get-ChildItem -Path $tasksDir | Where-Object { $_.LastWriteTime -lt $cutoffTime }
-    if ($oldTasks) {
-        $oldTasks | ForEach-Object {
-            Write-Host "  - Deleting old task: $($_.Name)" -ForegroundColor Gray
-            Remove-Item -Path $_.FullName -Recurse -Force
-        }
-        Write-Host "Old tasks cleanup complete." -ForegroundColor Green
-    } else {
-        Write-Host "No tasks older than 8 hours found to clean up." -ForegroundColor Green
-    }
-}
+# $tasksDir = Join-Path $scriptDir "tasks"
+# if (Test-Path $tasksDir) {
+#     $cutoffTime = (Get-Date).AddHours(-8)
+#     Write-Host "Cleaning up tasks older than 8 hours from '$tasksDir'..." -ForegroundColor Yellow
+#     $oldTasks = Get-ChildItem -Path $tasksDir | Where-Object { $_.LastWriteTime -lt $cutoffTime }
+#     if ($oldTasks) {
+#         $oldTasks | ForEach-Object {
+#             Write-Host "  - Deleting old task: $($_.Name)" -ForegroundColor Gray
+#             Remove-Item -Path $_.FullName -Recurse -Force
+#         }
+#         Write-Host "Old tasks cleanup complete." -ForegroundColor Green
+#     } else {
+#         Write-Host "No tasks older than 8 hours found to clean up." -ForegroundColor Green
+#     }
+# }
 
 
 $uvicornArgs = @(

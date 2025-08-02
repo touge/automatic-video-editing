@@ -381,8 +381,8 @@ class FrameAccurateVideoComposer:
                 log.success(f"诊断完成：Segment {seg_index} 中的所有素材均兼容，恢复成功。")
                 return True # 所有场景都测试通过，退出 while 循环
 
-    def combine_segments(self, segment_results, trimmed_audio_path=None):
-        """📽️ 合并所有段落为主视频，并加入音频"""
+    def combine_segments(self, segment_results, final_duration):
+        """📽️ 合并所有段落为主视频，并加入原始音频"""
         # 过滤掉处理失败的段落 (None)
         valid_segment_results = [r for r in segment_results if r and r[0] and r[0].exists() and r[0].stat().st_size > 1024]
         if not valid_segment_results:
@@ -396,23 +396,19 @@ class FrameAccurateVideoComposer:
             for path in segment_paths:
                 f.write(f"file '{path.resolve()}'\n")
 
-        # --- 使用预处理好的音频，极大提升合并速度 ---
+        # --- 使用原始音频进行合并，并精确控制输出时长 ---
         video_inputs = ["-f", "concat", "-safe", "0", "-i", str(concat_list_path)]
+        audio_input = ["-i", str(self.input_audio_path)]
         
-        if self.trim_audio and trimmed_audio_path and trimmed_audio_path.exists():
-            audio_input = ["-i", str(trimmed_audio_path)]
-            ffmpeg_cmd = ["ffmpeg"] + video_inputs + audio_input + [
-                "-c:v", "copy",      # 视频流直接复制，无损且快速
-                "-c:a", "copy",      # 音频流也直接复制，因为已预处理
-                "-map", "0:v:0",     # 映射视频流
-                "-map", "1:a:0",     # 映射音频流
-                "-y", str(self.output_video_path)
-            ]
-        else: # 无音频合并
-            ffmpeg_cmd = ["ffmpeg"] + video_inputs + [
-                "-c", "copy",
-                "-y", str(self.output_video_path)
-            ]
+        ffmpeg_cmd = ["ffmpeg"] + video_inputs + audio_input + [
+            "-c:v", "copy",      # 视频流直接复制，无损且快速
+            "-c:a", "aac",       # 音频需要重新编码以确保兼容性
+            "-b:a", "192k",
+            "-map", "0:v:0",     # 映射视频流
+            "-map", "1:a:0",     # 映射音频流
+            "-t", str(final_duration), # 严格设置输出视频时长为音频时长
+            "-y", str(self.output_video_path)
+        ]
 
 
         print("\n🔗 合并所有段落为完整视频 ...")
@@ -441,33 +437,31 @@ class FrameAccurateVideoComposer:
 
 
     def execute(self):
-        """🏁 执行完整流程：载入 → 分段处理 → 合并输出"""
+        """🏁 执行完整流程：载入 → 时长对齐 → 分段处理 → 合并输出"""
         self.load_structure()
         self.temp_dir.mkdir(exist_ok=True)
 
-        # --- 音频预处理 ---
-        trimmed_audio_path = None
-        if self.trim_audio:
-            # 1. 基于结构计算最终精确总时长 (移除 +1 补偿)
-            total_planned_frames = sum(int(round(seg["duration"] * self.fps)) for seg in self.structure)
-            total_planned_duration = total_planned_frames / self.fps
-            
-            # 2. 创建一个临时的、已裁剪好的音频文件，避免在最后合并时处理长音频
-            trimmed_audio_path = self.temp_dir / "trimmed_audio.aac"
-            audio_trim_cmd = [
-                "ffmpeg", "-y",
-                "-i", str(self.input_audio_path),
-                "-ss", "0", "-t", str(total_planned_duration),
-                "-c:a", "aac", "-b:a", "192k",
-                str(trimmed_audio_path)
-            ]
-            print(f"\n🔊 预处理音频，裁剪为 {total_planned_duration:.3f}s ...")
-            subprocess.run(audio_trim_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL if self.silent else None)
-            print("🔊 音频预处理完成。")
+        # --- 新增：以音频为基准，对齐视频总时长 ---
+        true_audio_duration = self.get_duration(self.input_audio_path)
+        log.info(f"🔊 原始音频时长为: {true_audio_duration:.3f}s")
+
+        total_planned_video_duration = sum(seg["duration"] for seg in self.structure)
+        log.info(f"🎞️ 计划视频总时长为: {total_planned_video_duration:.3f}s")
+
+        if total_planned_video_duration < true_audio_duration:
+            duration_gap = true_audio_duration - total_planned_video_duration
+            log.warning(f"📹 视频时长短于音频，将延长最后一个片段 {duration_gap:.3f}s 以对齐。")
+            if self.structure:
+                self.structure[-1]["duration"] += duration_gap
+                new_duration = self.structure[-1]["duration"]
+                log.info(f"✅ 最后一个片段的新目标时长为: {new_duration:.3f}s")
+        else:
+            log.info("📹 视频时长不短于音频，无需调整。")
+        # --- 时长对齐结束 ---
 
         # --- 处理视频段落 ---
         segment_results = []
-        max_retries = 1  # 每个片段最多重试1次
+        max_retries = 1
         print(f"\n🎞️ 共 {len(self.structure)} 个视频段落待处理")
         for i, segment in enumerate(self.structure):
             print(f"\n🎬 正在处理 Segment {i+1}/{len(self.structure)}")
@@ -476,27 +470,24 @@ class FrameAccurateVideoComposer:
             for attempt in range(max_retries + 1):
                 try:
                     result = self.process_segment(segment, i)
-                    break  # 如果成功，则跳出重试循环
+                    break
                 except RuntimeError as e:
                     log.error(f"生成 Segment {i} 失败 (尝试 {attempt + 1}/{max_retries + 1})。错误: {e}")
                     if attempt < max_retries:
-                        # 尝试恢复
                         recovery_successful = self._handle_segment_failure(segment, i)
                         if recovery_successful:
                             log.success(f"恢复成功，正在重试 Segment {i}...")
-                            # 在重试前，需要重新加载结构，因为素材信息可能已更新
-                            # 注意：这里我们只是替换了文件，JSON中的路径不变，所以不需要重新加载
                             continue
                         else:
                             log.error(f"恢复失败，终止 Segment {i} 的处理。")
-                            raise e # 恢复失败，重新抛出异常
+                            raise e
                     else:
                         log.error(f"已达到最大重试次数，Segment {i} 彻底失败。")
-                        raise e # 达到最大重试次数，重新抛出异常
+                        raise e
             
             segment_results.append(result)
 
         # --- 合并最终视频 ---
-        self.combine_segments(segment_results, trimmed_audio_path)
+        self.combine_segments(segment_results, true_audio_duration)
         
         print(f"\n✅ 成片完成：{self.output_video_path}")
