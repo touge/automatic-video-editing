@@ -3,40 +3,50 @@ Gemini:
   type: ps1
   path: "D:/AIGC/gemini-balance/run.ps1"
   port: 10001
+  ready_keyword: "Uvicorn running on"
 
 Ollama:
   name: "[Ollama:11434]"
   type: cmd
   command: "ollama serve"
   port: 11434
+  ready_keyword: "Listening on"
+  # 在终止进程前，发送一个带 "keep_alive: 0s" 的请求，命令Ollama立即卸载模型以释放资源
+  stop_command: 'powershell -Command "Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -ContentType ''application/json'' -Body ''{\"model\": \"gemma3:12b\", \"prompt\": \"unload\", \"keep_alive\": \"0s\"}'' -ErrorAction SilentlyContinue"'
 
 ComfyUI:
   name: "[ComfyUI:8001]"
   type: ps1
   path: "D:/AIGC/ComfyUI/developer-20250625/run.ps1"
   port: 8001
+  ready_keyword: "To see the GUI go to"
 
 CosyVoice2:
   name: "[CosyVoice2:8002]"
   type: ps1
   path: "D:/AIGC/CosyVoice/run.ps1"
   port: 8002
+  ready_keyword: "Application startup complete."
 
 IndexTTS:
   name: "[IndexTTS:8002]"
   type: ps1
-  path: "D:/AIGC/index-tts-service/run.ps1" # 请您后续修改为实际的启动脚本路径
+  path: "D:/AIGC/indextts-service/run.ps1" # 请您后续修改为实际的启动脚本路径
   port: 8002
+  ready_keyword: "Application startup complete."
 
 
 HeygemAPI:
   name: "[HeygemAPI:8003]"
   type: ps1
-  path: "D:/AIGC/Duix.Heygem/Duix.Heygem.Proxy/run.ps1"
+  path: "D:/AIGC/Duix.Heygem.Proxy/run.ps1"
   port: 8003
+  ready_keyword: "Application startup complete."
 
 LexiVisionAI:
   name: "[LexiVisionAI:8004]"
   type: ps1
   path: "D:/AIGC/LexiVision-AI/run.ps1"
   port: 8004
+  depends_on: ["Ollama"] # 声明此服务依赖的服务列表
+  ready_keyword: "Application startup complete."

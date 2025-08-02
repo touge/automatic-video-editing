@@ -29,8 +29,8 @@ ALLOWED_EXTENSIONS = {".txt", ".md", ".docx"}
 async def create_task(
     task_id: Optional[str] = Form("", description="Optional task ID to overwrite or continue an existing task."),
     file: UploadFile = File(..., description="The script file (.txt) for the video."),
-    speaker: Optional[str] = Form(None, description="The speaker for TTS."),
-    video_style: Optional[str] = Form(None, description="The style of the video, e.g., 'science', 'health'.")
+    speaker: Optional[str] = Form("", description="The speaker for TTS."),
+    video_style: Optional[str] = Form("", description="The style of the video, e.g., 'science', 'health'.")
 ):
     """
     Creates a new task or uses an existing one, and uploads the script file.

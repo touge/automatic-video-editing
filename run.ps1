@@ -65,11 +65,29 @@ Write-Host "GPU Info: " -NoNewline -ForegroundColor Cyan
 & $pythonExe -c "import torch; props = torch.cuda.get_device_properties(0); used = torch.cuda.memory_allocated(0)//(1024**2); total = props.total_memory//(1024**2); print(f'{props.name}, {used}MB used of {total}MB')"
 
 
+# 🧹 清理8小时前的旧任务目录
+$tasksDir = Join-Path $scriptDir "tasks"
+if (Test-Path $tasksDir) {
+    $cutoffTime = (Get-Date).AddHours(-8)
+    Write-Host "Cleaning up tasks older than 8 hours from '$tasksDir'..." -ForegroundColor Yellow
+    $oldTasks = Get-ChildItem -Path $tasksDir | Where-Object { $_.LastWriteTime -lt $cutoffTime }
+    if ($oldTasks) {
+        $oldTasks | ForEach-Object {
+            Write-Host "  - Deleting old task: $($_.Name)" -ForegroundColor Gray
+            Remove-Item -Path $_.FullName -Recurse -Force
+        }
+        Write-Host "Old tasks cleanup complete." -ForegroundColor Green
+    } else {
+        Write-Host "No tasks older than 8 hours found to clean up." -ForegroundColor Green
+    }
+}
+
+
 $uvicornArgs = @(
     "src.api.main:app"
     ,"--host", "0.0.0.0"
     ,"--port", $Port.ToString()
-    # ,"--reload"
+    ,"--reload"
 )
 
 Write-Host "Starting Automatic video editing on port $Port..." -ForegroundColor Green

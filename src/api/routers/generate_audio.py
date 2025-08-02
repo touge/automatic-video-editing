@@ -30,7 +30,7 @@ class AudioGenerationRequest(BaseModel):
     """
     音频生成请求的JSON结构。
     """
-    speaker: Optional[str] = Field(None, description="用于TTS的speaker。如果未提供，将使用任务状态中保存的speaker。")
+    speaker: Optional[str] = Field("", description="用于TTS的speaker。如果未提供，将使用任务状态中保存的speaker。")
 
 async def _generate_audio_task(task_id: str, step_name: str, speaker: str, request: Request):
     """后台任务：使用一个明确的speaker来从脚本生成音频。"""
@@ -43,7 +43,7 @@ async def _generate_audio_task(task_id: str, step_name: str, speaker: str, reque
     try:
         log.info(f"根据配置，尝试启动服务: {service_to_manage}")
         try:
-            service_controller.safe_start(service_to_manage, keyword="Application startup complete.", timeout=300)
+            service_controller.safe_start(service_to_manage, timeout=300)
         except RuntimeError as e:
             log.error(str(e))
             task_manager.update_task_status(TaskManager.STATUS_FAILED, step=step_name, details={"message": str(e)})

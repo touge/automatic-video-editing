@@ -7,22 +7,30 @@ from contextlib import contextmanager
 
 @contextmanager
 def no_proxy():
-    """A context manager to temporarily disable proxy settings."""
-    original_proxies = {
-        'http': os.environ.get('HTTP_PROXY'),
-        'https': os.environ.get('HTTPS_PROXY')
-    }
+    """
+    一个更强力的上下文管理器，用于临时禁用所有已知的代理环境变量。
+    """
+    proxy_keys = [
+        'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY',
+        'http_proxy', 'https_proxy', 'all_proxy'
+    ]
+    original_proxies = {key: os.environ.get(key) for key in proxy_keys}
+    
+    proxies_to_remove = {k: v for k, v in original_proxies.items() if v is not None}
+
+    if proxies_to_remove:
+        log.info(f"Temporarily disabling system proxies: {list(proxies_to_remove.keys())}")
+
     try:
-        if 'HTTP_PROXY' in os.environ:
-            del os.environ['HTTP_PROXY']
-        if 'HTTPS_PROXY' in os.environ:
-            del os.environ['HTTPS_PROXY']
+        for key in proxies_to_remove:
+            if key in os.environ:
+                del os.environ[key]
         yield
     finally:
-        if original_proxies['http']:
-            os.environ['HTTP_PROXY'] = original_proxies['http']
-        if original_proxies['https']:
-            os.environ['HTTPS_PROXY'] = original_proxies['https']
+        for key, value in proxies_to_remove.items():
+            os.environ[key] = value
+        if proxies_to_remove:
+            log.info("System proxy settings restored.")
 
 class OllamaProvider(BaseLlmProvider):
     """
@@ -35,13 +43,15 @@ class OllamaProvider(BaseLlmProvider):
             raise ValueError("Ollama provider config must contain a 'model' field.")
         
         try:
-            # Initialization should be lightweight, no proxy manipulation here
-            self.client = ollama.Client(
-                host=self.config.get('host'),
-                timeout=self.config.get('timeout', 600)
-            )
+            # 在初始化客户端时临时禁用代理，以确保它不会继承系统范围的代理设置
+            with no_proxy():
+                self.client = ollama.Client(
+                    host=self.config.get('host'),
+                    timeout=self.config.get('timeout', 600)
+                )
             self.default_model = self.model
         except Exception as e:
+            # 捕获并重新引发更具体的异常
             raise ConnectionError(f"Failed to initialize Ollama client: {e}")
 
     def generate(self, prompt: str, **kwargs) -> str:
@@ -53,14 +63,12 @@ class OllamaProvider(BaseLlmProvider):
             raise ValueError(f"Model '{model}' is not the configured model for provider '{self.name}'. Configured model: {self.model}")
 
         try:
-            log.info("Disabling proxy for Ollama generate call.")
-            with no_proxy():
-                options = kwargs if kwargs else {}
-                response = self.client.generate(
-                    model=model,
-                    prompt=prompt,
-                    options=options
-                )
+            options = kwargs if kwargs else {}
+            response = self.client.generate(
+                model=model,
+                prompt=prompt,
+                options=options
+            )
             return response.get('response', '')
         except ollama.ResponseError as e:
             if "model" in e.error.lower() and "not found" in e.error.lower():
@@ -78,14 +86,12 @@ class OllamaProvider(BaseLlmProvider):
             raise ValueError(f"Model '{model}' is not the configured model for provider '{self.name}'. Configured model: {self.model}")
 
         try:
-            log.info("Disabling proxy for Ollama chat call.")
-            with no_proxy():
-                options = kwargs if kwargs else {}
-                response = self.client.chat(
-                    model=model,
-                    messages=messages,
-                    options=options
-                )
+            options = kwargs if kwargs else {}
+            response = self.client.chat(
+                model=model,
+                messages=messages,
+                options=options
+            )
             return response['message']['content']
         except ollama.ResponseError as e:
             if "model" in e.error.lower() and "not found" in e.error.lower():

@@ -41,7 +41,7 @@ async def _run_analysis_task(task_id: str, request: Request):
     # ✅ 新增：安全启动服务，阻塞确认关键字
     try:
         # ✅ 新增：使用更可靠的关键字 "Listening on"
-        service_controller.safe_start(service_name, keyword="Listening on", timeout=60)
+        service_controller.safe_start(service_name, timeout=60)
     except RuntimeError as e:
         log.error(str(e))
         task_manager.update_task_status(

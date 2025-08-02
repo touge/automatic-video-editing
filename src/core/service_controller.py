@@ -40,14 +40,19 @@ class ServiceController:
         # 用于记录已启动服务的进程对象，方便后续关闭或监控状态
         self.processes = {}
 
-    def safe_start(self, service_name: str, keyword: str = "started", timeout: int = 30, interval: float = 0.5):
+    def safe_start(self, service_name: str, timeout: int = 30, interval: float = 0.5):
         """
-        启动服务并阻塞等待，直到检测到服务输出中出现就绪关键字；超时则关闭服务并抛异常。
-        - service_name: 要启动的服务名（配置中定义）
-        - keyword: 日志中用于判断服务是否就绪的关键字（例如 "Ready", "Started"）
-        - timeout: 等待服务启动的最长时间（秒）
-        - interval: 每轮轮询的间隔时间（秒）
+        安全地启动一个服务并等待其就绪。
+        它会自动从配置中读取 'ready_keyword'。
         """
+        svc = self.services.get(service_name)
+        if not svc:
+            raise ValueError(f"Service '{service_name}' not defined in configuration.")
+        
+        keyword = svc.get("ready_keyword")
+        if not keyword:
+            raise ValueError(f"Service '{service_name}' in config is missing 'ready_keyword'.")
+
         self.start(service_name)
         try:
             self.wait_until_ready(service_name, keyword=keyword, timeout=timeout, interval=interval)
@@ -100,53 +105,87 @@ class ServiceController:
 
     def start(self, key):
         """
-        启动指定服务，支持两种类型：
-        - ps1：以 PowerShell 脚本文件启动
-        - cmd：执行内联命令字符串（例如启动 NodeJS、Python）
+        启动指定服务。如果服务有依赖项，会先递归启动依赖项。
         """
         if key not in self.services:
             print(f"[Skipped] Service '{key}' is not defined in configuration.")
             return
 
         svc = self.services[key]
-        port = str(svc["port"])
 
+        # 1. 启动依赖项
+        if "depends_on" in svc:
+            for dep_key in svc["depends_on"]:
+                print(f"[Dependency] Service '{key}' depends on '{dep_key}'. Ensuring it is started safely...")
+                self.safe_start(dep_key) # 使用 safe_start 确保依赖项完全就绪
+
+        # 2. 检查服务是否已在运行
+        port = svc.get("port")
+        if port and self._get_pid_by_port(port):
+            print(f"[Notice] Service '{key}' is already running on port {port}.")
+            return
+
+        # 3. 启动当前服务
         if svc["type"] == "ps1":
             ps1_path = str(self.script_root / svc["path"])
-            cmd = ["powershell", "-ExecutionPolicy", "Bypass", "-File", ps1_path, "-Port", port]
+            cmd = ["powershell", "-ExecutionPolicy", "Bypass", "-File", ps1_path, "-Port", str(port)]
         elif svc["type"] == "cmd":
             cmd = ["powershell", "-Command", svc["command"]]
         else:
             print(f"[Error] Unknown service type: {svc['type']}")
             return
 
-        # 关键修改：捕获 stdout
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='ignore')
         self.processes[key] = proc
         print(f"[Started] Service '{svc['name']}' with PID {proc.pid}")
 
     def stop(self, key):
         """
-        停止指定服务：
-        - 通过服务端口查找对应 PID
-        - 调用 psutil 终止进程
+        停止指定服务。如果服务有依赖项，会一并停止。
         """
         svc = self.services.get(key)
         if not svc:
             print(f"[Skipped] Service '{key}' is not defined in configuration.")
             return
 
-        port = svc["port"]
-        pid = self._get_pid_by_port(port)
+        # 1. 停止当前服务
+        port = svc.get("port")
+        if port:
+            # 1.1 执行优雅关闭命令
+            if "stop_command" in svc:
+                stop_cmd = svc["stop_command"]
+                print(f"[Graceful Stop] Executing stop command for '{key}': {stop_cmd}")
+                try:
+                    subprocess.run(stop_cmd, shell=True, check=True, capture_output=True, text=True)
+                    print(f"[Graceful Stop] Successfully executed stop command for '{key}'.")
+                    time.sleep(2) # 等待命令生效
+                except Exception as e:
+                    print(f"[Graceful Stop] Warning: Stop command for '{key}' failed: {e}")
 
-        if pid:
-            try:
-                psutil.Process(pid).terminate()
-                print(f"[Stopped] Service '{svc['name']}' with PID {pid}")
-            except Exception as e:
-                print(f"[Error] Failed to terminate PID {pid}: {e}")
-        else:
-            print(f"[Notice] No process found listening on port {port}")
+            # 1.2 强制终止进程
+            pid = self._get_pid_by_port(port)
+            if pid:
+                try:
+                    process = psutil.Process(pid)
+                    process.terminate()
+                    process.wait(timeout=5)
+                    print(f"[Stopped] Service '{svc['name']}' with PID {pid}")
+                except psutil.NoSuchProcess:
+                    print(f"[Notice] Process with PID {pid} no longer exists for '{key}'.")
+                except psutil.TimeoutExpired:
+                    print(f"[Warning] Process {pid} for '{key}' did not terminate gracefully, forcing kill.")
+                    process.kill()
+                except Exception as e:
+                    print(f"[Error] Failed to terminate PID {pid} for '{key}': {e}")
+            else:
+                 if "stop_command" not in svc:
+                    print(f"[Notice] No process found for service '{key}' on port {port}")
+        
+        # 2. 停止依赖项
+        if "depends_on" in svc:
+            for dep_key in svc["depends_on"]:
+                print(f"[Dependency] Stopping dependency '{dep_key}' for service '{key}'...")
+                self.stop(dep_key) # 递归停止
 
     def status(self, key: str) -> dict:
         """
