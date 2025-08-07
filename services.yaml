@@ -35,11 +35,10 @@ IndexTTS:
   port: 8002
   ready_keyword: "Application startup complete."
 
-
 HeygemAPI:
   name: "[HeygemAPI:8003]"
   type: ps1
-  path: "D:/AIGC/Duix.Heygem.Proxy/run.ps1"
+  path: "D:/AIGC/Duix.Heygem.Proxy/run-simple.ps1"
   port: 8003
   ready_keyword: "Application startup complete."
 
