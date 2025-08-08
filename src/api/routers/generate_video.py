@@ -19,11 +19,16 @@ from fastapi import Request
 
 router = APIRouter(
     prefix="/tasks",
-    tags=["Composition Steps - Video Composition"],
+    tags=["视频合成 - Video Composition"],
     dependencies=[Depends(verify_token)]
 )
 
-async def _assemble_video_task(task_id: str, burn_subtitle: bool, request: Request):
+class AssembleRequest(BaseModel):
+    # burn_subtitle: bool = False
+    force_rerun: bool = False
+
+# async def _assemble_video_task(task_id: str, burn_subtitle: bool, force_rerun: bool, request: Request):
+async def _assemble_video_task(task_id: str, force_rerun: bool, request: Request):
     """Background task: Assemble the final video."""
     task_manager = TaskManager(task_id)
     step_name = "video_assembly"
@@ -31,11 +36,13 @@ async def _assemble_video_task(task_id: str, burn_subtitle: bool, request: Reque
         task_manager.update_task_status(
             TaskManager.STATUS_RUNNING,
             step=step_name,
-            details={"message": f"Final video assembly task has started (burn subtitles: {burn_subtitle})."}
+            # details={"message": f"Final video assembly task has started (burn subtitles: {burn_subtitle})."}
+            details={"message": f"Final video assembly task."}
         )
         
         preprocessor = VideoGenerator(task_id)
-        final_video_path = await run_in_threadpool(preprocessor.run, stage="full", burn_subtitle=burn_subtitle)
+        # final_video_path = await run_in_threadpool(preprocessor.run, stage="full", burn_subtitle=burn_subtitle, force_rerun=force_rerun)
+        final_video_path = await run_in_threadpool(preprocessor.run, stage="full", force_rerun=force_rerun)
         
         video_url = get_relative_url(final_video_path, request)
 
@@ -59,7 +66,7 @@ async def _assemble_video_task(task_id: str, burn_subtitle: bool, request: Reque
         )
 
 @router.post("/{task_id}/assemble", summary="Assemble the final video (Async)")
-async def assemble_video(task_id: str, background_tasks: BackgroundTasks, request: Request, burn_subtitle: bool = Body(False, embed=True)):
+async def assemble_video(task_id: str, background_tasks: BackgroundTasks, request: Request, body: AssembleRequest):
     task_manager = TaskManager(task_id)
     step_name = "video_assembly"
 
@@ -68,9 +75,11 @@ async def assemble_video(task_id: str, background_tasks: BackgroundTasks, reques
     if not os.path.exists(assets_path) or not os.path.exists(audio_path):
         raise HTTPException(status_code=404, detail=f"Prerequisite file 'final_scenes_assets.json' or 'final_audio.wav' not found for task '{task_id}'. Cannot start video assembly.")
 
-    background_tasks.add_task(_assemble_video_task, task_id, burn_subtitle, request)
+    # background_tasks.add_task(_assemble_video_task, task_id, body.burn_subtitle, body.force_rerun, request)
+    background_tasks.add_task(_assemble_video_task, task_id, body.force_rerun, request)
     
-    message = f"Final video assembly task submitted successfully. Awaiting processing (burn subtitles: {burn_subtitle})."
+    # message = f"Final video assembly task submitted successfully. Awaiting processing (burn subtitles: {body.burn_subtitle}, force rerun: {body.force_rerun})."
+    message = f"Final video assembly task submitted successfully. Awaiting processing (force rerun: {body.force_rerun})."
     task_manager.update_task_status(
         TaskManager.STATUS_PENDING,
         step=step_name,

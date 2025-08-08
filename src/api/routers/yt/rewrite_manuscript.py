@@ -3,84 +3,95 @@ from typing import Dict, Any, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
-from starlette.concurrency import run_in_threadpool # 导入 run_in_threadpool
+from starlette.concurrency import run_in_threadpool
 
 from src.config_loader import config
 from src.api.security import verify_token
-from src.api.routers.yt.shared_data import tasks, save_task_status, load_task_status # 导入共享的 tasks 字典和 save/load 函数
-from src.providers.llm import LlmManager # 导入 LLM 管理器
-from src.logger import log # 导入日志
+from src.providers.llm import LlmManager
+from src.logger import log
+from src.api.routers.yt.rewrite_task_manager import RewriteTaskManager
 
 router = APIRouter()
 
 class RewriteManuscriptRequest(BaseModel):
     task_id: str
-    # 可以添加更多重写参数，例如 target_style: Optional[str] = None
-    # target_length: Optional[int] = None
 
 class RewriteManuscriptResponse(BaseModel):
     task_id: str
-    status: str # "PENDING", "RUNNING", "COMPLETED", "FAILED"
+    status: str
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
 
 async def _rewrite_manuscript_task(task_id: str):
     """
     后台任务：使用 LLM 重写稿件。
+    使用 RewriteTaskManager 来管理状态。
     """
-    tasks[task_id]["status"] = "RUNNING"
-    tasks[task_id]["progress"] = 0.0 # 重写任务的进度
-    save_task_status(task_id) # 保存初始状态
+    task_manager = RewriteTaskManager(task_id=task_id)
     
     try:
-        # 移除内部的前置检查，因为 API 调度时已确保条件满足
-        original_text = tasks[task_id]["result"]["full_text"] # 直接访问 full_text
-        if not original_text:
-            raise Exception("No full_text found for rewriting in task result.") # 改为 Exception，因为 HTTPException 不应在后台任务中直接抛出
+        # 1. 更新状态为运行中
+        task_manager.update_task_status(status=task_manager.STATUS_RUNNING, step="rewriting_manuscript")
 
-        # 初始化 LLM 管理器
+        # 2. 从 manuscript.txt 文件加载原始文本
+        manuscript_path = f"tasks/{task_id}/manuscript.txt"
+        try:
+            with open(manuscript_path, "r", encoding="utf-8") as f:
+                original_text = f.read()
+        except FileNotFoundError:
+            raise Exception(f"Manuscript file not found at {manuscript_path}.")
+
+        if not original_text:
+            raise Exception("Manuscript file is empty.")
+
+        # 3. 根据配置准备 LLM
+        copywriting_config = config.get('copywriting_generation', {})
+        provider_override = copywriting_config.get('llm_provider')
+        if provider_override:
+            log.info(f"Overriding LLM provider to '{provider_override}' for copywriting task.")
+            config.set('llm_providers.use', provider_override)
+        
         llm_manager = LlmManager(config)
         llm_provider = llm_manager.get_provider()
         if not llm_provider:
             raise Exception("LLM provider not initialized. Check config.yaml.")
 
-        log.info(f"Rewriting manuscript for task {task_id} using LLM...")
-        
-        # 从 config.yaml 加载重写提示词
-        # 根据用户反馈，直接使用 gemini_rewrite 路径
-        rewrite_prompt_path = config.get('prompts.gemini_rewrite')
+        # 4. 加载 Prompt
+        rewrite_prompt_path = config.get_raw_value('copywriting_generation.rewrite_prompt')
         if not rewrite_prompt_path:
-            raise Exception("Gemini rewrite prompt path not found in config.yaml.")
+            raise Exception("Rewrite prompt path not found in config.")
+
+        with open(rewrite_prompt_path, "r", encoding="utf-8") as f:
+            prompt_template = f.read()
         
-        try:
-            with open(rewrite_prompt_path, "r", encoding="utf-8") as f:
-                prompt_template = f.read()
-        except FileNotFoundError:
-            raise Exception(f"Gemini rewrite prompt file not found at {rewrite_prompt_path}.")
+        prompt = prompt_template.replace("{original_text}", original_text)
         
-        # 构建重写提示词
-        prompt = prompt_template.replace("{original_text}", original_text) # 假设模板中包含 {original_text} 占位符
-        
-        # 调用 LLM 进行重写，将其放入线程池以避免阻塞
+        # 5. 调用 LLM 重写
+        log.info(f"Rewriting manuscript for task {task_id} using LLM...")
+        log.info(f"prompt:\n{prompt}")
+        # prompt= "地球上真的有外星人吗？"
         rewritten_text = await run_in_threadpool(llm_provider.generate, prompt)
         
         if not rewritten_text:
             raise Exception("LLM failed to generate rewritten text.")
 
-        tasks[task_id]["result"]["rewritten_text"] = rewritten_text
-        tasks[task_id]["status"] = "COMPLETED"
-        tasks[task_id]["progress"] = 1.0
+        # 6. 更新状态为成功
+        task_manager.update_task_status(
+            status=task_manager.STATUS_SUCCESS,
+            step="rewriting_completed",
+            details={"result": {"rewritten_text": rewritten_text}}
+        )
         log.success(f"Manuscript rewriting for task {task_id} completed successfully.")
-        save_task_status(task_id) # 保存完成状态
 
     except Exception as e:
         error_message = f"Manuscript rewriting failed: {str(e)}"
         log.error(f"Background manuscript rewriting task '{task_id}' failed: {error_message}", exc_info=True)
-        tasks[task_id]["status"] = "FAILED"
-        tasks[task_id]["error"] = error_message
-        tasks[task_id]["progress"] = 1.0
-        save_task_status(task_id) # 保存失败状态
-
+        # 更新状态为失败
+        task_manager.update_task_status(
+            status=task_manager.STATUS_FAILED,
+            step="rewriting_failed",
+            details={"error": error_message}
+        )
 
 @router.post("/rewrite_manuscript", response_model=RewriteManuscriptResponse, dependencies=[Depends(verify_token)])
 async def rewrite_manuscript(request: RewriteManuscriptRequest, background_tasks: BackgroundTasks):
@@ -88,33 +99,33 @@ async def rewrite_manuscript(request: RewriteManuscriptRequest, background_tasks
     使用 LLM 重写指定任务ID的视频稿件。
     """
     task_id = request.task_id
+    task_manager = RewriteTaskManager(task_id=task_id)
     
-    # 尝试从内存或文件加载任务状态
-    task_info = tasks.get(task_id)
-    if not task_info:
-        task_info = load_task_status(task_id)
-        if task_info:
-            tasks[task_id] = task_info # 加载到内存中
+    # 1. 获取任务状态
+    task_info = task_manager.get_task_status()
+    status = task_info.get("status")
+
+    # 2. 检查任务是否处于可以重写的状态
+    # 初始任务必须完成，或者重写任务失败了，才允许再次发起
+    # if status not in [task_manager.STATUS_SUCCESS, task_manager.STATUS_FAILED]:
+    #     raise HTTPException(
+    #         status_code=400, 
+    #         detail=f"Task '{task_id}' is not in a valid state for rewriting. Current status: '{status}'."
+    #     )
+
+    # 3. 检查稿件 URL 是否存在
+    # if "manuscript_url" not in task_info.get("result", {}):
+    #     raise HTTPException(
+    #         status_code=400, 
+    #         detail=f"Task '{task_id}' is missing 'manuscript_url' in its result."
+    #     )
+
+    # 4. 如果任务正在运行，则直接返回状态
+    if status == task_manager.STATUS_RUNNING:
+        return RewriteManuscriptResponse(task_id=task_id, status=status)
+
+    # 5. 添加后台任务
+    background_tasks.add_task(_rewrite_manuscript_task, task_id)
     
-    # 检查任务是否存在且已完成视频处理
-    if not task_info or task_info["status"] != "COMPLETED" or "full_text" not in task_info["result"]:
-        raise HTTPException(status_code=400, detail=f"Task '{task_id}' not found, not completed video processing, or full_text not available.")
-    
-    # 检查是否已经有重写任务在进行或已完成
-    if "rewritten_text" in task_info["result"] and task_info["status"] == "COMPLETED":
-        return RewriteManuscriptResponse(
-            task_id=task_id, 
-            status="COMPLETED", 
-            result={"rewritten_text": task_info["result"]["rewritten_text"]}
-        )
-    
-    # 更新任务状态为重写中
-    tasks[task_id]["status"] = "REWRITING_PENDING" # 新增一个状态
-    tasks[task_id]["progress"] = 0.0
-    
-    background_tasks.add_task(
-        _rewrite_manuscript_task, 
-        task_id
-    )
-    
-    return RewriteManuscriptResponse(task_id=task_id, status="REWRITING_PENDING", progress=0.0)
+    # 6. 返回 PENDING 状态
+    return RewriteManuscriptResponse(task_id=task_id, status=task_manager.STATUS_PENDING)

@@ -18,7 +18,7 @@ if project_root not in sys.path:
 
 router = APIRouter(
     prefix="/tasks",
-    tags=["Tasks & Status - Task Creation and Status"],
+    tags=["创建任务和状态 - Task Creation and Status"],
     dependencies=[Depends(verify_token)]
 )
 

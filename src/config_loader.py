@@ -2,6 +2,7 @@ import yaml
 from pathlib import Path
 import os
 import sys
+import copy
 
 # 确保项目根目录在 sys.path 中，以便可以找到 config.yaml
 # __file__ 是 logic/config_loader.py, '..' 是 logic, '..' 是项目根目录
@@ -13,16 +14,20 @@ class Config:
     def __init__(self, config_path='config.yaml'):
         # 确保我们总是从项目根目录加载配置文件
         self.config_path = Path(project_root) / config_path
-        self.data = self._load_config()
-
-    def _load_config(self):
-        """加载并解析 YAML 配置文件，并解析文件路径引用"""
+        
+        # 1. 加载原始的 YAML 数据
         if not self.config_path.is_file():
             raise FileNotFoundError(f"配置文件未找到: {self.config_path}")
         with open(self.config_path, 'r', encoding='utf-8') as f:
-            config_data = yaml.safe_load(f)
-        self._resolve_paths(config_data)
-        return config_data
+            raw_data = yaml.safe_load(f)
+        
+        # 2. 保存一份原始数据的副本
+        self.raw_data = raw_data
+        
+        # 3. 创建一个深拷贝用于路径解析，避免修改原始数据
+        processed_data = copy.deepcopy(raw_data)
+        self._resolve_paths(processed_data)
+        self.data = processed_data
 
     def _resolve_paths(self, data):
         """递归地解析配置文件中指向 .md 文件的路径"""
@@ -61,6 +66,30 @@ class Config:
             return value
         except (KeyError, TypeError):
             return default
+
+    def get_raw_value(self, key_path, default=None):
+        """
+        通过点分隔的路径获取原始配置项（不进行路径解析）。
+        """
+        keys = key_path.split('.')
+        value = self.raw_data
+        try:
+            for key in keys:
+                value = value[key]
+            return value
+        except (KeyError, TypeError):
+            return default
+
+    def set(self, key_path, value):
+        """
+        通过点分隔的路径设置配置项的值（在内存中）。
+        例如: set('llm_providers.use', 'gemini')
+        """
+        keys = key_path.split('.')
+        d = self.data
+        for key in keys[:-1]:
+            d = d.setdefault(key, {})
+        d[keys[-1]] = value
 
     def __getattr__(self, name):
         """允许通过属性访问顶层配置项, e.g., config.server"""

@@ -25,6 +25,7 @@ from src.api.routers import (
     generate_video,
     documentation,
     generate_digital_human,
+    composite_video,
 )
 from src.api.routers.yt import process_video, status, rewrite_manuscript # 导入新的 yt 子路由
 
@@ -51,16 +52,23 @@ app.mount("/static/tasks", StaticFiles(directory="tasks"), name="static_tasks")
 
 # 包含来自其他模块的路由
 app.include_router(create_tasks.router)
+
 app.include_router(generate_audio.router)
 app.include_router(generate_subtitles.router)
+
 app.include_router(generate_scenes.router)
 app.include_router(generate_assets.router)
+
 app.include_router(generate_video.router)
-app.include_router(documentation.router) # 文档路由
 app.include_router(generate_digital_human.router) # 数字人视频生成路由
+app.include_router(composite_video.router) # 数字人视频合成路由
+
 app.include_router(process_video.router, prefix="/yt", tags=["YouTube Subtitles"]) # YouTube 视频处理路由
 app.include_router(status.router, prefix="/yt", tags=["YouTube Subtitles"]) # YouTube 任务状态路由
 app.include_router(rewrite_manuscript.router, prefix="/yt", tags=["YouTube Subtitles"]) # YouTube 稿件重写路由
+
+app.include_router(documentation.router) # 文档路由
+
 
 # 根路径，用于简单的服务健康检查
 @app.get("/", tags=["Root"], include_in_schema=False)

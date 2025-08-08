@@ -22,7 +22,7 @@ if project_root not in sys.path:
 
 router = APIRouter(
     prefix="/tasks",
-    tags=["Audio & Subtitles - Audio and Subtitles"],
+    tags=["音频和字幕 - Audio and Subtitles"],
     dependencies=[Depends(verify_token)]
 )
 

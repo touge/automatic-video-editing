@@ -23,7 +23,8 @@ service_name = "LexiVisionAI"
 
 router = APIRouter(
     prefix="/tasks",
-    tags=["Scenes & Assets - Scenes and Assets"],
+    # tags=["Scenes & Assets - Scenes and Assets"],
+    tags=["场景和素材 - Scenes and Assets"],
     dependencies=[Depends(verify_token)]
 )
 

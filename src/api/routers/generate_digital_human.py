@@ -20,7 +20,7 @@ from src.utils import get_relative_url
 
 router = APIRouter(
     prefix="/tasks",
-    tags=["Digital Human"],
+    tags=["视频合成 - Video Composition"],
     dependencies=[Depends(verify_token)]
 )
 
@@ -91,9 +91,11 @@ async def generate_digital_human_video(
         await run_in_threadpool(_download_and_save_file, main_video_url, main_video_local_path)
         
         # 更新响应中的主视频URL为可访问的本地URL
-        result["data"]["url"] = get_relative_url(main_video_local_path, request)
+        main_video_relative_url = get_relative_url(main_video_local_path, request)
+        result["data"]["url"] = main_video_relative_url
         
         local_segment_urls = []
+        local_segment_paths = [] # 新增：用于存储本地路径
         if segment_urls:
             log.info(f"Found {len(segment_urls)} video segments. Downloading...")
             dh_segment_dir = os.path.join(dh_video_dir, "segments")
@@ -103,17 +105,27 @@ async def generate_digital_human_video(
                 seg_filename = os.path.basename(urlparse(seg_url).path)
                 seg_local_path = os.path.join(dh_segment_dir, seg_filename)
                 await run_in_threadpool(_download_and_save_file, seg_url, seg_local_path)
+                
                 local_segment_urls.append(get_relative_url(seg_local_path, request))
+                local_segment_paths.append(seg_local_path) # 存储本地路径
             
-            # 更新响应中的切片URL为可访问的本地URL
             result["data"]["urls"] = local_segment_urls
             log.info("All video segments downloaded and saved.")
 
-        # 更新任务状态
+        # V2 修正: 使用新的嵌套结构更新任务状态
         success_details = {
             "message": "Digital human video and segments generated successfully.",
-            "digital_human_video_url": result["data"]["url"],
-            "digital_human_segment_urls": local_segment_urls
+            "digital_human": {
+                "video": {
+                    "path": main_video_local_path,
+                    "url": main_video_relative_url
+                },
+                "segments": {
+                    "paths": local_segment_paths,
+                    "urls": local_segment_urls
+                },
+                "segment_instructions": segments_json # 新增：保存分段指令
+            }
         }
         task_manager.update_task_status(
             TaskManager.STATUS_SUCCESS,
