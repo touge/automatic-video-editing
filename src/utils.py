@@ -138,3 +138,9 @@ def get_relative_url(file_path: str, request: 'Request') -> str:
     static_path = f"static/{relative_path.replace(os.path.sep, '/')}"
     
     return f"{base_url}/{static_path}"
+
+def to_slash_path(path: str) -> str:
+    """
+    将路径中的反斜杠'\'替换为正斜杠'/'，以确保跨平台兼容性。
+    """
+    return path.replace("\\", "/")

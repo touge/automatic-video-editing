@@ -86,7 +86,7 @@ async def _prepare_assets_task(task_id: str):
         log.info(f"{service_name} service has been stopped.")
 
 
-@router.post("/{task_id}/assets", summary="Prepare all video assets (Async)")
+@router.post("/{task_id}/assets", summary="准备所有视频资产/Prepare all video assets (Async)")
 async def prepare_assets(task_id: str, background_tasks: BackgroundTasks):
     """
     **Step 1**: Finds, downloads, and validates video assets for all sub-scenes in `final_scenes.json`.

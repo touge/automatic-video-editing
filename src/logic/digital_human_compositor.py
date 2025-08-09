@@ -46,17 +46,25 @@ class DigitalHumanCompositor:
         # 记录日志，表示合成任务已开始
         log.info(f"--- Starting Digital Human Composition for Task ID: {self.task_manager.task_id} ---")
 
-        # 1. 从 status.json 获取必要的路径
-        # 获取任务的当前状态数据，通常从一个 JSON 文件中读取
+        # 1. 从 status.json 获取正确的路径
+        log.info("Fetching paths from status.json...")
         status_data = self.task_manager.get_task_status()
-        details = status_data.get("details", {})
         
-        # 从任务状态的 'details' 字段中获取基础视频路径
-        base_video_path = details.get("final_video_path")
-        # 获取数字人相关的详细信息
-        digital_human_data = details.get("digital_human", {})
-        # 获取所有已生成的短视频片段的文件路径列表
-        segment_paths = digital_human_data.get("segments", {}).get("paths", [])
+        # 基础视频是主视频
+        base_video_path = status_data.get("final_video_path")
+        
+        # 待合成的视频是经过绿幕处理的数字人切片
+        digital_human_data = status_data.get("digital_human", {})
+        if not digital_human_data:
+            raise ValueError("'digital_human' data not found in status file.")
+        
+        segment_paths = digital_human_data.get("processed_segment_videos", {}).get("paths", [])
+        if not segment_paths:
+            log.warning("Processed segments not found, falling back to raw segments.")
+            segment_paths = digital_human_data.get("segment_videos", {}).get("paths", [])
+        
+        log.info(f"Base video path: {base_video_path}")
+        log.info(f"Found {len(segment_paths)} segment paths.")
 
         # 验证基础视频路径是否存在
         if not base_video_path or not os.path.exists(base_video_path):
@@ -77,15 +85,18 @@ class DigitalHumanCompositor:
         # 拼接任务目录和输出文件名，生成最终的完整输出路径
         output_path = os.path.join(self.task_manager.task_path, output_filename)
 
-        # 4. 调用核心合成器
-        # 调用底层 VideoCompositor 的方法，传入所有准备好的参数来执行实际的合成
-        self.compositor.composite_videos(
+        # 4. 调用核心合成器并进行严格的错误检查
+        success = self.compositor.composite_videos(
             base_video_path=base_video_path,
             short_videos=short_videos_to_composite,
             output_path=output_path,
             clip_params=main_clip_params,
             base_volume=base_video_volume
         )
+
+        # 如果合成失败，则立即抛出异常
+        if not success:
+            raise Exception("The core video compositor failed to execute the FFmpeg command.")
 
         # 5. 更新任务状态 (可选，但推荐)
         # 记录成功日志，并返回最终视频路径

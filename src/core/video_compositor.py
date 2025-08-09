@@ -4,7 +4,7 @@ import json
 
 class VideoCompositor:
     """
-    一个功能强大的视频处理和合成类。
+    一个用于处理和合成视频的类。
     V5.0 (Final): 优化API，使用 position: {'x', 'y'} 结构。
     """
 
@@ -103,9 +103,11 @@ class VideoCompositor:
             filter_chain += f"[{video_stream_name}_t]scale={video_spec.get('size', 'iw:ih')}[{video_stream_name}];"
             filter_complex_parts.append(filter_chain)
             
+            # --- V5 API 优化 ---
             position = video_spec.get('position', {})
             x_pos = position.get('x', "(W-w)/2")
             y_pos = position.get('y', "(H-h)/2")
+            # --- V5 API 优化结束 ---
             
             overlay_output = f"[tmp{i}]" if i < len(short_videos) else "[v_out]"
             filter_complex_parts.append(

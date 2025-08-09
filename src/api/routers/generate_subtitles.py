@@ -86,7 +86,7 @@ async def _generate_subtitles_task(task_id: str, audio_input_data: Dict[str, Any
         )
 
 
-@router.post("/{task_id}/subtitles", summary="Generate subtitles for a task (task_id in path + JSON body)")
+@router.post("/{task_id}/subtitles", summary="为任务生成字幕/Generate subtitles for a task (task_id in path + JSON body)")
 async def generate_subtitles(
     task_id: str,
     background_tasks: BackgroundTasks,

@@ -100,7 +100,7 @@ async def _run_analysis_task(task_id: str, request: Request):
         service_controller.stop(service_name)
         log.info(f"{service_name} service has been stopped.")
 
-@router.post("/{task_id}/scenes", summary="Analyze scenes and generate keywords (Async)")
+@router.post("/{task_id}/scenes", summary="分析场景并生成关键词/Analyze scenes and generate keywords (Async)")
 async def scenes_analysis(
     task_id: str,
     background_tasks: BackgroundTasks,

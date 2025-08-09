@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Form, Request
 from typing import Optional, List
@@ -16,7 +17,7 @@ from src.core.service_controller import ServiceController
 from src.logger import log
 from src.api.security import verify_token
 from starlette.concurrency import run_in_threadpool
-from src.utils import get_relative_url
+from src.utils import get_relative_url, to_slash_path
 
 router = APIRouter(
     prefix="/tasks",
@@ -34,7 +35,7 @@ def _download_and_save_file(url: str, save_path: str):
                 f.write(chunk)
     log.info(f"Downloaded file from {url} to {save_path}")
 
-@router.post("/{task_id}/digital-human", summary="Generate Digital Human Video (Sync)")
+@router.post("/{task_id}/digital-human", summary="生成数字人视频/Generate Digital Human Video (Sync)")
 async def generate_digital_human_video(
     request: Request,
     task_id: str,
@@ -112,19 +113,22 @@ async def generate_digital_human_video(
             result["data"]["urls"] = local_segment_urls
             log.info("All video segments downloaded and saved.")
 
-        # V2 修正: 使用新的嵌套结构更新任务状态
+        # 解析 segments_json 字符串为 Python 对象
+        parsed_segments = json.loads(segments_json) if segments_json else []
+
+        # V2 修正: 使用新的嵌套结构更新任务状态，并确保路径使用正斜杠
         success_details = {
             "message": "Digital human video and segments generated successfully.",
             "digital_human": {
                 "video": {
-                    "path": main_video_local_path,
+                    "path": to_slash_path(main_video_local_path),
                     "url": main_video_relative_url
                 },
-                "segments": {
-                    "paths": local_segment_paths,
+                "segment_videos": {
+                    "paths": [to_slash_path(p) for p in local_segment_paths],
                     "urls": local_segment_urls
                 },
-                "segment_instructions": segments_json # 新增：保存分段指令
+                "segments": parsed_segments
             }
         }
         task_manager.update_task_status(

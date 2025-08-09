@@ -65,7 +65,7 @@ async def _assemble_video_task(task_id: str, force_rerun: bool, request: Request
             details={"message": error_message}
         )
 
-@router.post("/{task_id}/assemble", summary="Assemble the final video (Async)")
+@router.post("/{task_id}/assemble", summary="组装最终视频/Assemble the final video (Async)")
 async def assemble_video(task_id: str, background_tasks: BackgroundTasks, request: Request, body: AssembleRequest):
     task_manager = TaskManager(task_id)
     step_name = "video_assembly"
