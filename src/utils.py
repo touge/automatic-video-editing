@@ -103,24 +103,12 @@ def get_video_duration(video_path: str) -> Optional[float]:
     ]
     
     try:
-        result = subprocess.run(command, capture_output=True, text=True, check=True, encoding='utf-8')
+        result = run_command(command, "ffprobe execution failed")
         data = json.loads(result.stdout)
         duration = float(data['format']['duration'])
         return duration
-    except FileNotFoundError:
-        log.error("ffprobe 未安装或不在PATH中。请安装FFmpeg。")
-        return None
-    except subprocess.CalledProcessError as e:
-        log.error(f"ffprobe 执行失败: {e.stderr}")
-        return None
-    except json.JSONDecodeError:
-        log.error(f"无法解析ffprobe的JSON输出: {result.stdout}")
-        return None
-    except KeyError:
-        log.error(f"ffprobe输出中缺少时长信息: {result.stdout}")
-        return None
-    except Exception as e:
-        log.error(f"获取视频时长时发生未知错误: {e}", exc_info=True)
+    except (RuntimeError, json.JSONDecodeError, KeyError) as e:
+        log.error(f"Failed to get video duration for {video_path}: {e}")
         return None
 
 def get_relative_url(file_path: str, request: 'Request') -> str:
@@ -138,6 +126,32 @@ def get_relative_url(file_path: str, request: 'Request') -> str:
     static_path = f"static/{relative_path.replace(os.path.sep, '/')}"
     
     return f"{base_url}/{static_path}"
+
+def run_command(command: List[str], error_message: str, capture_output=True, text=True, check=True, encoding='utf-8'):
+    """
+    一个通用的命令执行函数，封装了 subprocess.run，提供了统一的日志记录和错误处理。
+    """
+    try:
+        process = subprocess.run(
+            command,
+            capture_output=capture_output,
+            text=text,
+            check=check,
+            encoding=encoding
+        )
+        log.debug(f"Command executed successfully: {' '.join(command)}")
+        if process.stdout:
+            log.debug(f"Stdout: {process.stdout.strip()}")
+        if process.stderr:
+            log.warning(f"Stderr: {process.stderr.strip()}")
+        return process
+    except FileNotFoundError:
+        err_msg = f"Error: The command '{command[0]}' was not found. Please ensure it is installed and in your PATH."
+        log.error(err_msg)
+        raise RuntimeError(err_msg)
+    except subprocess.CalledProcessError as e:
+        log.error(f"{error_message}: {e.stderr.strip() if e.stderr else 'No stderr output.'}")
+        raise
 
 def to_slash_path(path: str) -> str:
     """

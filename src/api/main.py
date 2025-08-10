@@ -23,12 +23,11 @@ from src.api.routers import (
     generate_assets,
     generate_subtitles,
     generate_video,
+    burn_subtitle,
     documentation,
-    generate_digital_human,
-    composite_video,
-    process_video as process_digital_human_video, # 导入新的处理路由
+    digital_human, # 导入合并后的数字人路由
 )
-from src.api.routers.yt import process_video as yt_process_video, status, rewrite_manuscript # 导入新的 yt 子路由并重命名
+from src.api.routers.yt import process_video as yt_process_video, status, rewrite_manuscript
 
 # 导入用于设置信号处理器的函数，这是实现优雅关闭的关键
 from src.core.process_manager import setup_signal_handlers
@@ -59,13 +58,17 @@ app.include_router(generate_subtitles.router)
 
 app.include_router(generate_scenes.router)
 app.include_router(generate_assets.router)
-
 app.include_router(generate_video.router)
-app.include_router(generate_digital_human.router) # 数字人视频生成路由
-app.include_router(process_digital_human_video.router) # 数字人视频处理（抠图）路由
-app.include_router(composite_video.router) # 数字人视频合成路由
+# app.include_router(burn_subtitle.router)
 
-app.include_router(yt_process_video.router, prefix="/yt", tags=["YouTube Subtitles"]) # YouTube 视频处理路由
+#数字人与生成的视频进行匹配
+app.include_router(digital_human.router) # 包含所有数字人相关路由
+
+#字幕压制
+app.include_router(burn_subtitle.router)
+
+
+app.include_router(yt_process_video.router, prefix="/yt", tags=["YouTube Subtitles"])
 app.include_router(status.router, prefix="/yt", tags=["YouTube Subtitles"]) # YouTube 任务状态路由
 app.include_router(rewrite_manuscript.router, prefix="/yt", tags=["YouTube Subtitles"]) # YouTube 稿件重写路由
 

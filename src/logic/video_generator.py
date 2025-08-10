@@ -143,16 +143,16 @@ class VideoGenerator:
     #         log.error(f"FFmpeg subtitle burn failed: {e}")
     #         raise
 
-    def _validate_subtitle_config(self):
-        # ... (implementation remains the same)
-        pass
+    # def _validate_subtitle_config(self):
+    #     # ... (implementation remains the same)
+    #     pass
 
-import platform
-def _escape_ffmpeg_path(path: str | Path) -> str:
-    """
-    Escapes a path for use in ffmpeg filter parameters, especially for Windows.
-    """
-    path_str = str(path)
-    if platform.system() == "Windows":
-        return path_str.replace('\\', '/').replace(':', '\\:')
-    return path_str
+# import platform
+# def _escape_ffmpeg_path(path: str | Path) -> str:
+#     """
+#     Escapes a path for use in ffmpeg filter parameters, especially for Windows.
+#     """
+#     path_str = str(path)
+#     if platform.system() == "Windows":
+#         return path_str.replace('\\', '/').replace(':', '\\:')
+#     return path_str

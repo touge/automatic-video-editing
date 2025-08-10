@@ -78,7 +78,7 @@ if (Test-Path $tasksDir) {
         }
         Write-Host "Old tasks cleanup complete." -ForegroundColor Green
     } else {
-        Write-Host "No tasks older than 8 hours found to clean up." -ForegroundColor Green
+        Write-Host "No tasks older than 12 hours found to clean up." -ForegroundColor Green
     }
 }
 

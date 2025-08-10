@@ -9,6 +9,7 @@ import shutil
 from src.core.asset_manager import AssetManager
 from src.config_loader import config
 from src.logger import log
+from src.utils import run_command
 # from ..utils import get_terminal_width_by_ratio
 from os.path import basename
 
@@ -64,27 +65,15 @@ class FrameAccurateVideoComposerV2:
     def check_gpu_support(self):
         """🔍 动态检查 FFmpeg 是否支持 NVIDIA NVENC 硬件加速"""
         try:
-            result = subprocess.run(
-                ["ffmpeg", "-encoders"],
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                check=True
-            )
+            result = run_command(["ffmpeg", "-encoders"], "Failed to check ffmpeg encoders.")
             if "h264_nvenc" in result.stdout:
-                print("\n✅ 检测到 NVIDIA GPU 加速支持 (h264_nvenc)，将启用硬件加速。")
+                log.info("✅ NVIDIA GPU acceleration (h264_nvenc) detected. Hardware acceleration will be enabled.")
                 return True
             else:
-                print("\nℹ️ 未检测到 NVIDIA GPU 加速支持，将使用 CPU 进行编码。")
+                log.info("ℹ️ NVIDIA GPU acceleration not detected. Encoding will use CPU.")
                 return False
-        except FileNotFoundError:
-            print("\n⚠️ FFmpeg 未安装或不在系统路径中，无法使用 GPU 加速。")
-            return False
-        except subprocess.CalledProcessError:
-            print("\n⚠️ 调用 FFmpeg 失败，无法检查 GPU 支持。")
-            return False
-        except Exception as e:
-            print(f"\n⚠️ 检查 GPU 支持时发生未知错误: {e}")
+        except RuntimeError as e:
+            log.warning(f"⚠️ Could not check for GPU support, proceeding with CPU. Reason: {e}")
             return False
 
     def get_duration(self, path):
@@ -96,9 +85,9 @@ class FrameAccurateVideoComposerV2:
             str(path)
         ]
         try:
-            output = subprocess.check_output(cmd).decode().strip()
-            return float(output)
-        except Exception:
+            result = run_command(cmd, f"Failed to get duration for {path}")
+            return float(result.stdout.strip())
+        except (RuntimeError, ValueError):
             return 0.0
 
     def process_segment(self, segment, seg_index):
@@ -189,10 +178,10 @@ class FrameAccurateVideoComposerV2:
             "-y", str(output_path)
         ]
 
-        subprocess.run(
+        run_command(
             ffmpeg_cmd,
-            stdout=subprocess.DEVNULL if self.silent else None,
-            stderr=subprocess.DEVNULL if self.silent else None
+            f"Failed to process segment {seg_index}",
+            capture_output=self.silent, # Only capture if silent
         )
 
         if not output_path.exists() or output_path.stat().st_size < 1024:
@@ -262,9 +251,18 @@ class FrameAccurateVideoComposerV2:
             "-y", str(output_path)
         ]
 
-        result = subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, encoding='utf-8')
-
-        if result.returncode != 0 or not output_path.exists() or output_path.stat().st_size < 1024:
+        try:
+            run_command(
+                ffmpeg_cmd,
+                f"Diagnostic test failed for {output_filename}",
+                capture_output=True # Always capture for diagnostics
+            )
+        except RuntimeError:
+            if output_path.exists():
+                os.remove(output_path)
+            return False
+        
+        if not output_path.exists() or output_path.stat().st_size < 1024:
             log.debug(f"测试合并失败。FFmpeg stderr:\n{result.stderr}")
             if output_path.exists():
                 os.remove(output_path)
@@ -394,24 +392,15 @@ class FrameAccurateVideoComposerV2:
 
 
         print("\n🔗 正在使用 V2 滤镜链合并所有段落...")
-        # 使用 Popen 实时打印 FFmpeg 日志，并确保消耗输出以避免死锁
-        process = subprocess.Popen(
-            ffmpeg_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding='utf-8',
-            bufsize=1
-        )
-        
-        # 必须消耗 stdout 来防止缓冲区填满导致的死锁
-        for line in iter(process.stdout.readline, ''):
-            if not self.silent:
-                print(line, end='')
-        
-        return_code = process.wait()
-        if return_code != 0:
-            log.error(f"FFmpeg 合并过程失败，返回码: {return_code}")
+        print("\n🔗 正在使用 V2 滤镜链合并所有段落...")
+        try:
+            run_command(
+                ffmpeg_cmd,
+                "Failed to combine segments",
+                capture_output=self.silent,
+            )
+        except RuntimeError:
+            log.error("FFmpeg combine process failed.")
         
         if self.output_video_path.exists() and self.output_video_path.stat().st_size > 0:
             final_video_duration = self.get_duration(self.output_video_path)
