@@ -80,6 +80,9 @@ class SubtitleBurner:
             '-loglevel', log_level,
             to_slash_path(output_path)
         ]
+        # print(f"ffmpeg_cmd: {ffmpeg_cmd}")
+        # return ffmpeg_cmd
+        # log.debug(f"FFmpeg Command: {' '.join(ffmpeg_cmd)}")
 
         if is_debug_mode:
             log.debug(f"FFmpeg Command: {' '.join(ffmpeg_cmd)}")

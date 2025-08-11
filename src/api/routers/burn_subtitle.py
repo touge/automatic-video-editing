@@ -38,7 +38,6 @@ async def _burn_subtitle_task(task_id: str, video_path: str, srt_path: str, outp
         
         burner = SubtitleBurner(task_id)
         final_video_path = await run_in_threadpool(burner.burn_subtitles, video_path=video_path, srt_path=srt_path, output_path=output_path)
-        
         video_url = get_relative_url(final_video_path, request)
 
         task_manager.update_task_status(
