@@ -1,3 +1,22 @@
+# ==================================================================================================
+# 帧精确视频合成器 V2
+#
+# 功能描述:
+# 本脚本定义了 `FrameAccurateVideoComposerV2` 类，是一个用于根据结构化的 JSON 输入
+# 以编程方式创建视频的强大工具。它擅长将视频片段以帧级别的精度拼接在一起，以匹配预定义的时长。
+#
+# 主要特性:
+# - JSON驱动结构: 通过JSON文件定义视频构成，指明段落、场景和素材路径。
+# - 帧精确计时: 根据目标时长精确计算并为每个场景分配帧数，确保段落的时长精确无误。
+# - 动态素材时长: 使用 `ffprobe` 获取视频素材的真实时长，用于精确计算。
+# - GPU加速: 自动检测并利用NVIDIA (NVENC) 硬件加速进行FFmpeg编码，并可回退到CPU。
+# - 错误处理与恢复: 包含严格模式，可在失败时中止流程，并提供先进的诊断与恢复机制，
+#   用以识别和替换导致FFmpeg失败的损坏视频素材。
+# - 音频同步: 将最终的视频与主音轨合并。如果视频比音频短，它会用黑屏填充视频以匹配音频的长度。
+# - 并发处理: 使用 `ThreadPoolExecutor` 加快获取视频时长的过程。
+# - 模块化与可配置: 设计为大型系统的一部分，可配置分辨率、帧率、临时目录等参数。
+# ==================================================================================================
+
 import json
 import subprocess
 from tqdm import tqdm
@@ -41,7 +60,7 @@ class FrameAccurateVideoComposerV2:
         :param trim_audio: 是否根据总视频时长裁剪音频
         :param silent: 是否静默运行 FFmpeg（不打印过程）
         :param strict_mode: 若任一段落失败则终止流程
-        :param max_workers: 获取素材时长的线程数
+        :param max_workers: 获取素材时长时使用的最大线程数
         """
         self.task_id = task_id
         self.video_struct_path = Path(video_struct_path)
@@ -94,29 +113,35 @@ class FrameAccurateVideoComposerV2:
         """🎬 基于帧数分配段落时长，生成段落视频，确保零误差"""
         scenes = segment.get("scenes", [])
 
+        # 检查场景列表是否为空
         if not scenes:
             raise ValueError(f"Data integrity error: Segment {seg_index:02d} contains no scenes. Processing cannot continue.")
 
         target_duration = segment["duration"]
         asset_paths = [scene["asset_path"] for scene in scenes]
 
+        # 验证每个场景都包含有效的 'time' 字段
         for i, scene in enumerate(scenes):
             if "time" not in scene or not isinstance(scene["time"], (int, float)) or scene["time"] <= 0:
-                raise ValueError(f"❌ Scene {i} 缺少有效的 'time' 字段 → {scene.get('asset_path')}")
+                raise ValueError(f"❌ Scene {i} is missing a valid 'time' field → {scene.get('asset_path')}")
 
+        # 计算目标时长所需的总帧数
         target_total_frames = int(round(target_duration * self.fps))
         
+        # 并发获取每个素材文件的实际时长
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             real_durations = list(tqdm(executor.map(self.get_duration, asset_paths),
                                     total=len(scenes),
-                                    desc=f"⏱️ 获取素材 Segment{seg_index:02d}"))
+                                    desc=f"⏱️ Getting asset durations for Segment {seg_index:02d}"))
         for scene, real_dur in zip(scenes, real_durations):
             scene["real_duration"] = real_dur
 
+        # 根据每个场景的 'time' 比例，在场景间分配总帧数
         total_time_ratio = sum(scene["time"] for scene in scenes)
         allocated_frames_sum = 0
         for i, scene in enumerate(scenes):
             if i == len(scenes) - 1:
+                # 将剩余的帧分配给最后一个场景，以避免舍入误差
                 scene["allocated_frames"] = target_total_frames - allocated_frames_sum
             else:
                 ratio = scene["time"] / total_time_ratio
@@ -124,6 +149,7 @@ class FrameAccurateVideoComposerV2:
                 scene["allocated_frames"] = frames
                 allocated_frames_sum += frames
         
+        # 计算每个场景分配到的时长
         for scene in scenes:
             scene["allocated_duration"] = scene["allocated_frames"] / self.fps
 
@@ -152,7 +178,7 @@ class FrameAccurateVideoComposerV2:
             origin = scene["time"]
             allocated = scene["allocated_duration"]
             compensated = round(allocated - origin, 3)
-            print(f"🎞️ {basename(scene['asset_path'])} → 原{origin}s,补{compensated}s,计:{allocated:.3f}s ({frames}帧)")
+            print(f"🎞️ {basename(scene['asset_path'])} → Original:{origin}s, Compensated:{compensated}s, Calculated:{allocated:.3f}s ({frames} frames)")
 
         filter_complex = "".join(filter_lines)
         filter_complex += f"{''.join(concat_labels)}concat=n={len(scenes)}:v=1:a=0[outv]"
@@ -160,7 +186,7 @@ class FrameAccurateVideoComposerV2:
         output_path = self.temp_dir / f"segment_{seg_index:02d}.mp4"
 
         if output_path.exists() and output_path.stat().st_size > 1024:
-            print(f"✅ Segment {seg_index:02d} 已存在，跳过生成。")
+            print(f"✅ Segment {seg_index:02d} already exists, skipping generation.")
             return (output_path, target_total_frames)
         
         encoder_opts = []
@@ -181,15 +207,15 @@ class FrameAccurateVideoComposerV2:
         run_command(
             ffmpeg_cmd,
             f"Failed to process segment {seg_index}",
-            capture_output=self.silent, # Only capture if silent
+            capture_output=self.silent, # 仅在静默模式下捕获输出
         )
 
         if not output_path.exists() or output_path.stat().st_size < 1024:
-            print(f"\n🧨 Segment {seg_index:02d} 生成失败 → {output_path}")
+            print(f"\n🧨 Segment {seg_index:02d} generation failed → {output_path}")
             for path in asset_paths:
-                print(f"  📄 来源素材：{path}")
+                print(f"  📄 Source asset: {path}")
             if self.strict_mode:
-                raise RuntimeError(f"❌ 严格模式终止：Segment {seg_index:02d} 视频生成失败")
+                raise RuntimeError(f"❌ Strict mode engaged: Segment {seg_index:02d} video generation failed")
             return None
         
         real_output_duration = self.get_duration(output_path)
@@ -199,13 +225,12 @@ class FrameAccurateVideoComposerV2:
         planned_duration_str = f"{target_total_frames / self.fps:.3f}s"
         real_duration_str = f"{real_output_duration:.3f}s"
         
-        print(f"📊 Segment{seg_index:02d} 计划 {target_total_frames}帧 ({planned_duration_str})，"
-              f"合成 {real_output_frames}帧 ({real_duration_str})，"
-              f"误差 {frame_diff:+}帧\n")
+        print(f"📊 Segment {seg_index:02d}: Planned {target_total_frames} frames ({planned_duration_str}), Generated {real_output_frames} frames ({real_duration_str}), Frame difference: {frame_diff:+} frames\n")
 
         return (output_path, target_total_frames)
 
     def _test_scene_combination(self, scenes_to_test: list, output_filename: str) -> bool:
+        """测试一组场景是否可以成功合并"""
         if not scenes_to_test:
             return True
         
@@ -252,18 +277,19 @@ class FrameAccurateVideoComposerV2:
         ]
 
         try:
-            run_command(
+            result = run_command(
                 ffmpeg_cmd,
                 f"Diagnostic test failed for {output_filename}",
-                capture_output=True # Always capture for diagnostics
+                capture_output=True # 为诊断始终捕获输出
             )
-        except RuntimeError:
+        except RuntimeError as e:
+            log.debug(f"Test combination failed. FFmpeg command failed: {e}")
             if output_path.exists():
                 os.remove(output_path)
             return False
         
         if not output_path.exists() or output_path.stat().st_size < 1024:
-            log.debug(f"测试合并失败。FFmpeg stderr:\n{result.stderr}")
+            log.debug(f"Test combination failed. FFmpeg stderr:\n{result.stderr}")
             if output_path.exists():
                 os.remove(output_path)
             return False
@@ -273,41 +299,43 @@ class FrameAccurateVideoComposerV2:
         return True
 
     def _replace_asset_for_scene(self, scene: dict) -> bool:
-        log.info(f"  -> 正在为场景替换素材: {scene.get('asset_path')}")
+        """为有问题的场景替换素材"""
+        log.info(f"  -> Replacing asset for scene: {scene.get('asset_path')}")
         try:
             asset_manager = AssetManager(config, self.task_id)
             online_search_count = config.get('asset_search', {}).get('online_search_count', 10)
         except Exception as e:
-            log.error(f"  -> 替换失败：初始化 AssetManager 失败。错误: {e}")
+            log.error(f"  -> Replacement failed: Could not initialize AssetManager. Error: {e}")
             return False
 
         old_asset_path = scene.get('asset_path')
         found_video_info_list = asset_manager.find_assets_for_scene(scene, online_search_count)
         
         if not found_video_info_list:
-            log.error(f"  -> 未能找到替换素材。")
+            log.error(f"  -> Could not find a replacement asset.")
             return False
 
         new_asset_path = found_video_info_list[0].get('local_path')
         if not new_asset_path or not os.path.exists(new_asset_path):
-            log.error(f"  -> AssetManager 返回了无效的新素材路径。")
+            log.error(f"  -> AssetManager returned an invalid new asset path.")
             return False
 
         try:
             if os.path.exists(old_asset_path):
                 os.remove(old_asset_path)
             shutil.move(new_asset_path, old_asset_path)
-            log.success(f"  -> 成功将新素材 '{new_asset_path}' 替换到 '{old_asset_path}'")
+            log.success(f"  -> Successfully replaced asset, moving '{new_asset_path}' to '{old_asset_path}'")
             return True
         except Exception as e:
-            log.error(f"  -> 文件替换操作失败: {e}")
+            log.error(f"  -> File replacement operation failed: {e}")
             return False
 
     def _handle_segment_failure(self, segment: dict, seg_index: int) -> bool:
-        log.warning(f"进入诊断恢复模式：处理失败的 Segment {seg_index}...")
+        """处理失败的段落，进行诊断和恢复"""
+        log.warning(f"Entering diagnostic and recovery mode for failed Segment {seg_index}...")
         scenes = segment.get("scenes", [])
         if len(scenes) <= 1:
-            log.warning("片段只包含一个或零个场景，直接尝试替换。")
+            log.warning("Segment contains only one or zero scenes, attempting direct replacement.")
             if scenes and self._replace_asset_for_scene(scenes[0]):
                 return True
             return False
@@ -316,31 +344,35 @@ class FrameAccurateVideoComposerV2:
             good_scenes = []
             found_faulty = False
             for i, scene in enumerate(scenes):
-                log.info(f"  -> 诊断测试: 正在合并场景 {i+1}/{len(scenes)}...")
+                log.info(f"  -> Diagnostic test: Combining scene {i+1}/{len(scenes)}...")
                 test_combination = good_scenes + [scene]
                 
                 if not self._test_scene_combination(test_combination, f"diag_test_{seg_index}.mp4"):
-                    log.error(f"  -> 定位到问题素材: 场景 {i} ({scene.get('asset_path')})")
+                    log.error(f"  -> Faulty asset identified: Scene {i} ({scene.get('asset_path')})")
                     found_faulty = True
                     
                     if not self._replace_asset_for_scene(scene):
-                        log.error("  -> 替换素材失败，终止此片段的恢复流程。")
+                        log.error("  -> Asset replacement failed, aborting recovery for this segment.")
                         return False
                     
-                    log.info("  -> 素材替换成功，将从头开始重新验证整个片段的兼容性。")
+                    # 素材替换成功后，需要重新获取它的真实时长
+                    new_duration = self.get_duration(scene['asset_path'])
+                    scene['real_duration'] = new_duration
+
+                    log.info("  -> Asset replaced successfully. Re-validating the entire segment from the beginning.")
                     break
                 else:
                     good_scenes.append(scene)
             
             if not found_faulty:
-                log.success(f"诊断完成：Segment {seg_index} 中的所有素材均兼容，恢复成功。")
+                log.success(f"Diagnosis complete: All assets in Segment {seg_index} are compatible. Recovery successful.")
                 return True
 
     def combine_segments(self, segment_results, audio_duration):
         """📽️ V2: 使用 concat 滤镜合并所有段落，并用 tpad 滤镜确保视频与音频同长"""
         valid_segment_results = [r for r in segment_results if r and r[0] and r[0].exists() and r[0].stat().st_size > 1024]
         if not valid_segment_results:
-            raise RuntimeError("❌ 无可用段落可合并")
+            raise RuntimeError("❌ No valid segments available to combine.")
 
         input_args = []
         concat_labels = []
@@ -358,9 +390,9 @@ class FrameAccurateVideoComposerV2:
 
         # 只有在视频比音频短的情况下才添加 tpad 滤镜
         if padding_duration > 0:
-            log.warning(f"📹 视频总时长 ({total_video_duration:.3f}s) 短于音频 ({audio_duration:.3f}s)，将填充 {padding_duration:.3f}s 黑场。")
+            log.warning(f"📹 Video duration ({total_video_duration:.3f}s) is shorter than audio ({audio_duration:.3f}s). Padding with {padding_duration:.3f}s of black screen.")
             # 使用 tpad 滤镜在视频末尾添加黑色帧来补足时长
-            filter_complex_parts.append(f"[v_concat]tpad=stop_duration={audio_duration}:color=black[v_padded];")
+            filter_complex_parts.append(f"[v_concat]tpad=stop_duration={padding_duration}:color=black[v_padded];")
             video_map_label = "[v_padded]"
         else:
             video_map_label = "[v_concat]"
@@ -375,23 +407,25 @@ class FrameAccurateVideoComposerV2:
             "-filter_complex", filter_complex,
             "-map", video_map_label,
             "-map", f"{len(valid_segment_results)}:a", # 音频是最后一个输入
-            "-c:v", "libx264", # 视频需要重新编码
+            "-c:v", "libx264", # 视频流需要重新编码以应用滤镜
             "-crf", "23",
             "-preset", "ultrafast",
             "-c:a", "aac",
             "-b:a", "192k",
-            "-t", str(audio_duration), # V2.1 修正: 使用 -t 精确控制时长
+            "-t", str(audio_duration), # V2.1 修正: 使用 -t 精确控制最终时长
             "-y", str(self.output_video_path)
         ]
         
         if self.gpu_enabled:
             ffmpeg_cmd[ffmpeg_cmd.index("-c:v") + 1] = "h264_nvenc"
             ffmpeg_cmd[ffmpeg_cmd.index("-preset") + 1] = "p7"
-            ffmpeg_cmd.insert(ffmpeg_cmd.index("h264_nvenc") + 1, "-cq")
+            # 移除旧的CRF，为NVENC插入CQ
+            ffmpeg_cmd.pop(ffmpeg_cmd.index("-crf") + 1)
+            ffmpeg_cmd[ffmpeg_cmd.index("-crf")] = "-cq"
             ffmpeg_cmd.insert(ffmpeg_cmd.index("-cq") + 1, "23")
 
 
-        print("\n🔗 正在使用 V2 滤镜链合并所有段落...")
+        print("\n🔗 Combining all segments using V2 filter chain...")
         try:
             run_command(
                 ffmpeg_cmd,
@@ -405,10 +439,10 @@ class FrameAccurateVideoComposerV2:
             final_video_duration = self.get_duration(self.output_video_path)
             duration_diff = final_video_duration - audio_duration
             
-            print(f"\n✅ 最终校验 (V2):\n"
-                  f"  - 目标音频时长: {audio_duration:.3f}s\n"
-                  f"  - 最终视频时长: {final_video_duration:.3f}s\n"
-                  f"  - 时长差异: {duration_diff:+.3f}s")
+            print(f"\n✅ Final Validation (V2):\n"
+                  f"  - Target audio duration: {audio_duration:.3f}s\n"
+                  f"  - Final video duration: {final_video_duration:.3f}s\n"
+                  f"  - Duration difference: {duration_diff:+.3f}s")
 
 
     def execute(self):
@@ -417,40 +451,44 @@ class FrameAccurateVideoComposerV2:
         self.temp_dir.mkdir(exist_ok=True)
 
         true_audio_duration = self.get_duration(self.input_audio_path)
-        log.info(f"🔊 目标音频时长为: {true_audio_duration:.3f}s")
+        log.info(f"🔊 Target audio duration: {true_audio_duration:.3f}s")
 
         # V2 修正: 移除在 execute 方法中修改视频结构的行为。
         # 时长对齐应在最终合并时处理，而不是通过修改片段时长。
         total_planned_video_duration = sum(seg["duration"] for seg in self.structure)
-        log.info(f"🎞️ 计划视频总时长为: {total_planned_video_duration:.3f}s")
+        log.info(f"🎞️ Planned total video duration: {total_planned_video_duration:.3f}s")
 
         segment_results = []
-        max_retries = 1
-        print(f"\n🎞️ 共 {len(self.structure)} 个视频段落待处理")
+        max_retries = 1 # 每个段落的最大恢复尝试次数
+        print(f"\n🎞️ Found {len(self.structure)} video segments to process")
         for i, segment in enumerate(self.structure):
-            print(f"\n🎬 正在处理 Segment {i+1}/{len(self.structure)}")
+            print(f"\n🎬 Processing Segment {i+1}/{len(self.structure)}")
             
             result = None
             for attempt in range(max_retries + 1):
                 try:
                     result = self.process_segment(segment, i)
-                    break
-                except RuntimeError as e:
-                    log.error(f"生成 Segment {i} 失败 (尝试 {attempt + 1}/{max_retries + 1})。错误: {e}")
-                    if attempt < max_retries:
+                    break # 如果成功，则跳出重试循环
+                except Exception as e:
+                    log.error(f"Failed to generate Segment {i} (Attempt {attempt + 1}/{max_retries + 1}). Error: {e}")
+                    if attempt < max_retries and self.strict_mode is False:
                         recovery_successful = self._handle_segment_failure(segment, i)
                         if recovery_successful:
-                            log.success(f"恢复成功，正在重试 Segment {i}...")
-                            continue
+                            log.success(f"Recovery successful. Retrying Segment {i}...")
+                            continue # 继续下一次尝试
                         else:
-                            log.error(f"恢复失败，终止 Segment {i} 的处理。")
-                            raise e
+                            log.error(f"Recovery failed. Aborting processing for Segment {i}.")
+                            result = None # 标记为失败
+                            break # 恢复失败，跳出重试
                     else:
-                        log.error(f"已达到最大重试次数，Segment {i} 彻底失败。")
-                        raise e
+                        log.error(f"Max retries reached or strict mode is on. Segment {i} has failed permanently.")
+                        if self.strict_mode:
+                            raise e # 严格模式下直接抛出异常
+                        result = None # 非严格模式下标记失败
+                        break # 跳出重试
             
             segment_results.append(result)
 
         self.combine_segments(segment_results, true_audio_duration)
         
-        print(f"\n✅ 成片完成：{self.output_video_path}")
+        print(f"\n✅ Video composition complete: {self.output_video_path}")
