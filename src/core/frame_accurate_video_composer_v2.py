@@ -392,7 +392,6 @@ class FrameAccurateVideoComposerV2:
 
 
         print("\n🔗 正在使用 V2 滤镜链合并所有段落...")
-        print("\n🔗 正在使用 V2 滤镜链合并所有段落...")
         try:
             run_command(
                 ffmpeg_cmd,
