@@ -74,7 +74,6 @@ class CompositeDigitalHumanRequest(BaseModel):
     output_filename: str = "final_video_composited.mp4"  # 输出文件名
 
 # --- 任务一：生成数字人视频 ---
-
 def _download_and_save_file(url: str, save_path: str):
     """一个辅助函数，用于从URL下载文件并保存到本地。"""
     proxies = {"http": None, "https": None}  # 禁用代理，确保能访问本地或局域网服务
@@ -210,7 +209,6 @@ async def _generate_digital_human_task(task_id: str, character_name: str, segmen
         log.info(f"Service '{heygem_service_name}' stopped.")
 
 # --- 任务二：处理视频切片 ---
-
 async def _process_segments_task(task_id: str, http_request: Request):
     """处理视频切片（绿幕抠图）的后台任务。"""
     task_manager = TaskManager(task_id)
@@ -278,7 +276,6 @@ async def _process_segments_task(task_id: str, http_request: Request):
         task_manager.update_task_status(TaskManager.STATUS_FAILED, step=step_name, details={"message": error_message})
 
 # --- 任务三：合成最终视频 ---
-
 async def _composite_task(task_id: str, request_body: Optional[CompositeDigitalHumanRequest], http_request: Request):
     """合成最终视频的后台任务。"""
     task_manager = TaskManager(task_id)

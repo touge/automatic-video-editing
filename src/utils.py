@@ -150,8 +150,11 @@ def run_command(command: List[str], error_message: str, capture_output=True, tex
         log.error(err_msg)
         raise RuntimeError(err_msg)
     except subprocess.CalledProcessError as e:
-        log.error(f"{error_message}: {e.stderr.strip() if e.stderr else 'No stderr output.'}")
-        raise
+        stderr = e.stderr.strip() if e.stderr else ''
+        stdout = e.stdout.strip() if e.stdout else ''
+        log.error(f"{error_message}:\nSTDERR: {stderr or '[empty]'}\nSTDOUT: {stdout or '[empty]'}")
+        raise RuntimeError(f"{error_message}: {stderr or stdout or 'No output captured.'}")
+
 
 def to_slash_path(path: str) -> str:
     """

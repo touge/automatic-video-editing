@@ -87,7 +87,7 @@ $uvicornArgs = @(
     "src.api.main:app"
     ,"--host", "0.0.0.0"
     ,"--port", $Port.ToString()
-    ,"--reload"
+    # ,"--reload"
 )
 
 Write-Host "Starting Automatic video editing on port $Port..." -ForegroundColor Green

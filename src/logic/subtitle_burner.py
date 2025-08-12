@@ -38,7 +38,74 @@ class SubtitleBurner:
             log.error(f"Failed to burn subtitles: {e}", exc_info=True)
             raise
 
+    # self, input_path: str, output_path: str, subtitle_path: str
     def _burn_subtitles_internal(self, input_path: str, output_path: str, subtitle_path: str):
+        if not self._validate_subtitle_config():
+            raise RuntimeError("Subtitle configuration validation failed.")
+
+        # 样式映射表
+        style_key_map = {
+            'font_name': 'FontName',
+            'font_size': 'FontSize',
+            'primary_color': 'PrimaryColour',
+            'outline_color': 'OutlineColour',
+            'border_style': 'BorderStyle',
+            'outline': 'Outline',
+            'shadow': 'Shadow',
+            'spacing': 'Spacing',
+            'alignment': 'Alignment',
+            'vertical_margin': 'MarginV'
+        }
+
+        # 构造 force_style 参数
+        style_options_list = []
+        for config_key, style_value in self.subtitle_config.items():
+            if config_key in style_key_map:
+                ass_style_key = style_key_map[config_key]
+                style_options_list.append(f"{ass_style_key}={style_value}")
+        style_options = ",".join(style_options_list)
+
+        # 字体目录
+        font_dir = self.subtitle_config.get('font_dir', 'assets/fonts')
+
+        # 路径转义，防止引号或空格炸掉 FFmpeg
+        subtitle_path_escaped = subtitle_path.replace("'", r"'\''")
+        font_dir_escaped = font_dir.replace("'", r"'\''")
+
+        # 构造字幕滤镜
+        subtitle_filter = (
+            f"subtitles='{subtitle_path_escaped}':"
+            f"fontsdir='{font_dir_escaped}':"
+            f"force_style='{style_options}'"
+        )
+
+        # 日志等级
+        is_debug_mode = self.config.get('debug', False)
+        log_level = 'verbose' if is_debug_mode else 'error'
+
+        # 构造 FFmpeg 命令
+        ffmpeg_cmd = [
+            'ffmpeg', '-y',
+            '-sub_charenc', 'UTF-8',  # 强制字幕编码为 UTF-8
+            '-i', input_path,
+            '-vf', subtitle_filter,
+            '-c:a', 'copy',
+            '-loglevel', log_level,
+            to_slash_path(output_path)
+        ]
+
+        if is_debug_mode:
+            log.debug(f"FFmpeg Command: {' '.join(ffmpeg_cmd)}")
+
+        # 执行命令
+        try:
+            run_command(ffmpeg_cmd, "Failed to burn subtitles")
+        except RuntimeError as e:
+            log.error(f"FFmpeg execution failed: {e}")
+            raise
+
+
+    def _burn_subtitles_internalx(self, input_path: str, output_path: str, subtitle_path: str):
         if not self._validate_subtitle_config():
             raise RuntimeError("Subtitle configuration validation failed.")
 
@@ -80,9 +147,6 @@ class SubtitleBurner:
             '-loglevel', log_level,
             to_slash_path(output_path)
         ]
-        # print(f"ffmpeg_cmd: {ffmpeg_cmd}")
-        # return ffmpeg_cmd
-        # log.debug(f"FFmpeg Command: {' '.join(ffmpeg_cmd)}")
 
         if is_debug_mode:
             log.debug(f"FFmpeg Command: {' '.join(ffmpeg_cmd)}")
